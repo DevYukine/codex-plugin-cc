@@ -151,7 +151,7 @@ Use it when you want Codex to:
 > [!NOTE]
 > Depending on the task and the model you choose these tasks might take a long time and it's generally recommended to force the task to be in the background or move the agent to the background.
 
-It supports `--background`, `--wait`, `--resume`, `--fresh`, `--route`, `--model`, and `--effort`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo. `--wait` has a bounded wait. An active `waitTimedOut: true` result is a durable handoff, not a continuing wait. It preserves `jobId`; a later explicit or user-driven `--wait --resume <delta>` attaches to that active task. Repeated attaches are idempotent and start no new implementation turn while active. `--fresh` explicitly starts a new task.
+It supports `--background`, `--wait`, `--resume`, `--fresh`, `--route`, `--model`, and `--effort`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo. Finished delegated task threads are archived automatically after their turn or confirmed cancellation settles. A resumed task transparently unarchives its archived thread, then archives it again when the new turn completes. `--wait` has a bounded wait. An active `waitTimedOut: true` result is a durable handoff, not a continuing wait. It preserves `jobId`; a later explicit or user-driven `--wait --resume <delta>` attaches to that active task. Repeated attaches are idempotent and start no new implementation turn while active. `--fresh` explicitly starts a new task.
 
 Examples:
 

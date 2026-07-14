@@ -200,6 +200,8 @@ function reconcileOwnedTerminalJob(workspaceRoot, jobId, ownerPid, ownerLease) {
       pid: null,
       completedAt: terminal.completedAt,
       ...(terminal.errorMessage ? { errorMessage: terminal.errorMessage } : {}),
+      ...(typeof terminal.threadArchived === "boolean" ? { threadArchived: terminal.threadArchived } : {}),
+      ...(terminal.threadArchiveError ? { threadArchiveError: terminal.threadArchiveError } : {}),
       updatedAt: terminal.completedAt
     };
   });
@@ -266,7 +268,9 @@ export async function runTrackedJob(job, runner, options = {}) {
           phase: completionStatus === "completed" ? "done" : "failed",
           completedAt,
           result: execution.payload,
-          rendered: execution.rendered
+          rendered: execution.rendered,
+          ...(typeof execution.threadArchived === "boolean" ? { threadArchived: execution.threadArchived } : {}),
+          ...(execution.threadArchiveError ? { threadArchiveError: execution.threadArchiveError } : {})
         });
         state.jobs[index] = {
           ...current,
@@ -277,6 +281,8 @@ export async function runTrackedJob(job, runner, options = {}) {
           phase: completionStatus === "completed" ? "done" : "failed",
           pid: null,
           completedAt,
+          ...(typeof execution.threadArchived === "boolean" ? { threadArchived: execution.threadArchived } : {}),
+          ...(execution.threadArchiveError ? { threadArchiveError: execution.threadArchiveError } : {}),
           updatedAt: completedAt
         };
       });

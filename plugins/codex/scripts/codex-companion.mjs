@@ -12,6 +12,7 @@ import { Worker } from "node:worker_threads";
 
 import { parseArgs, splitRawArgumentString } from "./lib/args.mjs";
 import {
+    archiveAppServerThread,
     buildPersistentTaskThreadName,
     DEFAULT_CONTINUE_PROMPT,
     findLatestTaskThread,
@@ -787,6 +788,8 @@ function buildReconciledSingleJobSnapshot(cwd, reference) {
         pid: null,
         completedAt: stored.completedAt,
         ...(stored.errorMessage ? { errorMessage: stored.errorMessage } : {}),
+        ...(typeof stored.threadArchived === "boolean" ? { threadArchived: stored.threadArchived } : {}),
+        ...(stored.threadArchiveError ? { threadArchiveError: stored.threadArchiveError } : {}),
         updatedAt: stored.completedAt
       };
       state.jobs[index] = reconciledJob;
@@ -872,7 +875,11 @@ async function resolveLatestTrackedTaskThread(cwd, options = {}) {
 
   const trackedTask = findLatestResumableTaskJob(visibleJobs);
   if (trackedTask) {
-    return { id: trackedTask.threadId, request: trackedTask.request ?? null };
+    return {
+      id: trackedTask.threadId,
+      request: trackedTask.request ?? null,
+      threadArchived: trackedTask.threadArchived === true
+    };
   }
 
   if (sessionId) {
@@ -995,6 +1002,7 @@ async function executeTaskRun(request) {
   });
 
   let resumeThreadId = null;
+  let unarchiveThread = false;
   if (request.resumeLast) {
     const latestThread = await resolveLatestTrackedTaskThread(workspaceRoot, {
       excludeJobId: request.jobId
@@ -1003,6 +1011,7 @@ async function executeTaskRun(request) {
       throw new Error("No previous Codex task thread was found for this repository.");
     }
     resumeThreadId = latestThread.id;
+    unarchiveThread = latestThread.threadArchived === true;
     Object.assign(request, resolveTaskSettings(getConfig(workspaceRoot), request, latestThread.request));
     const resolvedRequest = buildTaskRequest(request);
     upsertJob(workspaceRoot, {
@@ -1026,6 +1035,12 @@ async function executeTaskRun(request) {
     directAppServer: true,
     onProgress: request.onProgress,
     persistThread: true,
+    archiveThread: true,
+    shouldArchiveThread: () =>
+      listJobs(workspaceRoot).some(
+        (job) => job.id === request.jobId && job.status === "running" && job.pid === process.pid
+      ),
+    ...(unarchiveThread ? { unarchiveThread: true } : {}),
     threadName: resumeThreadId ? null : buildPersistentTaskThreadName(request.prompt || DEFAULT_CONTINUE_PROMPT)
   });
 
@@ -1048,13 +1063,17 @@ async function executeTaskRun(request) {
     threadId: result.threadId,
     rawOutput,
     touchedFiles: result.touchedFiles,
-    reasoningSummary: result.reasoningSummary
+    reasoningSummary: result.reasoningSummary,
+    threadArchived: result.threadArchived,
+    ...(result.threadArchiveError ? { threadArchiveError: result.threadArchiveError } : {})
   };
 
   return {
     exitStatus: result.status,
     threadId: result.threadId,
     turnId: result.turnId,
+    threadArchived: result.threadArchived,
+    ...(result.threadArchiveError ? { threadArchiveError: result.threadArchiveError } : {}),
     payload,
     rendered,
     summary: firstMeaningfulLine(rawOutput, firstMeaningfulLine(failureMessage, `${taskMetadata.title} finished.`)),
@@ -1895,6 +1914,18 @@ async function handleCancel(argv) {
   }
 
   if (liveness === "gone") {
+    let threadArchived = null;
+    let threadArchiveError = null;
+    if (job.jobClass === "task" && threadId) {
+      threadArchived = false;
+      try {
+        await archiveAppServerThread(cwd, threadId);
+        threadArchived = true;
+      } catch (error) {
+        threadArchiveError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
     const completedAt = nowIso();
     let cancelledJob = null;
     updateState(workspaceRoot, (state) => {
@@ -1922,6 +1953,8 @@ async function handleCancel(argv) {
         completedAt,
         cancelledAt: completedAt,
         errorMessage: "Cancelled by user.",
+        ...(typeof threadArchived === "boolean" ? { threadArchived } : {}),
+        ...(threadArchiveError ? { threadArchiveError } : {}),
         updatedAt: completedAt
       };
       state.jobs[index] = cancelledJob;
@@ -1939,7 +1972,9 @@ async function handleCancel(argv) {
         status: "cancelled",
         title: job.title,
         turnInterruptAttempted: interrupt.attempted,
-        turnInterrupted: interrupt.interrupted
+        turnInterrupted: interrupt.interrupted,
+        ...(typeof cancelledJob.threadArchived === "boolean" ? { threadArchived: cancelledJob.threadArchived } : {}),
+        ...(cancelledJob.threadArchiveError ? { threadArchiveError: cancelledJob.threadArchiveError } : {})
       };
       outputCommandResult(payload, renderCancelReport(cancelledJob), options.json);
       return;
@@ -1980,7 +2015,9 @@ async function handleCancel(argv) {
       status: "cancelled",
       title: job.title,
       turnInterruptAttempted: interrupt.attempted,
-      turnInterrupted: interrupt.interrupted
+      turnInterrupted: interrupt.interrupted,
+      ...(typeof retainedJob.threadArchived === "boolean" ? { threadArchived: retainedJob.threadArchived } : {}),
+      ...(retainedJob.threadArchiveError ? { threadArchiveError: retainedJob.threadArchiveError } : {})
     };
     outputCommandResult(payload, renderCancelReport(retainedJob), options.json);
     return;

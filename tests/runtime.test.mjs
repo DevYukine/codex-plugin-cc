@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildEnv, installFakeCodex } from "./fake-codex-fixture.mjs";
 import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
 import { loadBrokerSession, saveBrokerSession } from "../plugins/codex/scripts/lib/broker-lifecycle.mjs";
-import { resolveStateDir } from "../plugins/codex/scripts/lib/state.mjs";
+import { resolveJobFile, resolveStateDir } from "../plugins/codex/scripts/lib/state.mjs";
 import { createJobProgressUpdater, runTrackedJob } from "../plugins/codex/scripts/lib/tracked-jobs.mjs";
 import { probeProcess, terminateProcessTree } from "../plugins/codex/scripts/lib/process.mjs";
 
@@ -289,6 +289,7 @@ test("setup reports not ready when app-server config read fails", () => {
 test("review renders a no-findings result from app-server review/start", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
   installFakeCodex(binDir);
   initGitRepo(repo);
   fs.mkdirSync(path.join(repo, "src"));
@@ -305,6 +306,7 @@ test("review renders a no-findings result from app-server review/start", () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Reviewed uncommitted changes/);
   assert.match(result.stdout, /No material issues found/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(statePath, "utf8")).threadOperations, []);
 });
 
 test("task runs when the active provider does not require OpenAI login", () => {
@@ -392,6 +394,7 @@ test("transfer delegates the current Claude session directly to native import", 
     fakeState.threads[0].visibleMessages.map((message) => message.text),
     ["Initial request", "Initial answer", "/codex:transfer"]
   );
+  assert.deepEqual(fakeState.threadOperations, []);
 });
 
 test("transfer reports an actionable upgrade error when native import is unsupported", () => {
@@ -519,6 +522,7 @@ test("review accepts the quoted raw argument style for built-in base-branch revi
 test("adversarial review renders structured findings over app-server turn/start", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
   installFakeCodex(binDir);
   initGitRepo(repo);
   fs.mkdirSync(path.join(repo, "src"));
@@ -534,6 +538,7 @@ test("adversarial review renders structured findings over app-server turn/start"
 
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Missing empty-state guard/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(statePath, "utf8")).threadOperations, []);
 });
 
 test("adversarial review accepts the same base-branch targeting as review", () => {
@@ -629,9 +634,10 @@ test("review logs reasoning summaries and review output to the job log", () => {
   assert.match(log, /Reviewed uncommitted changes\./);
 });
 
-test("task --resume-last resumes the latest persisted task thread", () => {
+test("task --resume-last transparently unarchives and rearchives a persisted task thread", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
   installFakeCodex(binDir);
   initGitRepo(repo);
   fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
@@ -651,6 +657,23 @@ test("task --resume-last resumes the latest persisted task thread", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "Resumed the prior run.\nFollow-up prompt accepted.\n");
+  const state = JSON.parse(fs.readFileSync(path.join(resolveStateDir(repo), "state.json"), "utf8"));
+  const initialJob = state.jobs.find((job) => job.request.prompt === "initial task");
+  const resumedJob = state.jobs.find((job) => job.request.prompt === "follow up");
+  assert.equal(initialJob.threadArchived, true);
+  assert.equal(resumedJob.threadArchived, true);
+  assert.equal(JSON.parse(fs.readFileSync(resolveJobFile(repo, initialJob.id), "utf8")).result.threadArchived, true);
+  assert.equal(JSON.parse(fs.readFileSync(resolveJobFile(repo, resumedJob.id), "utf8")).result.threadArchived, true);
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.deepEqual(fakeState.threadOperations, [
+    { method: "thread/archive", threadId: "thr_1" },
+    { method: "thread/unarchive", threadId: "thr_1" },
+    { method: "thread/archive", threadId: "thr_1" }
+  ]);
+  assert.ok(
+    fakeState.calls.findIndex((call) => call.method === "turn/completed") <
+      fakeState.calls.findIndex((call) => call.method === "thread/archive")
+  );
 });
 
 test("task-resume-candidate returns the latest rescue thread from the current session", () => {
@@ -913,7 +936,7 @@ test("task --fresh is treated as routing control and does not leak into the prom
   assert.equal(fakeState.lastTurnStart.prompt, "diagnose the flaky test");
 });
 
-test("task --wait persists its request and returns the detached worker result", () => {
+test("task --wait archives its persistent thread after completion", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
   const statePath = path.join(binDir, "fake-codex-state.json");
@@ -929,14 +952,82 @@ test("task --wait persists its request and returns the detached worker result", 
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.status, 0);
   assert.match(payload.rawOutput, /Handled the requested task/);
+  assert.equal(payload.threadArchived, true);
 
   const state = JSON.parse(fs.readFileSync(path.join(resolveStateDir(repo), "state.json"), "utf8"));
   assert.equal(state.jobs[0].status, "completed");
   assert.equal(state.jobs[0].request.prompt, "inspect the worker lifecycle");
   assert.equal(state.jobs[0].request.jobId, state.jobs[0].id);
+  assert.equal(state.jobs[0].threadArchived, true);
+  assert.equal(JSON.parse(fs.readFileSync(resolveJobFile(repo, state.jobs[0].id), "utf8")).result.threadArchived, true);
 
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
   assert.equal(fakeState.lastTurnStart.prompt, "inspect the worker lifecycle");
+  assert.deepEqual(fakeState.threadOperations, [{ method: "thread/archive", threadId: "thr_1" }]);
+  assert.ok(
+    fakeState.calls.findIndex((call) => call.method === "turn/completed") <
+      fakeState.calls.findIndex((call) => call.method === "thread/archive")
+  );
+});
+
+test("archive failure preserves task output and is not unarchived on resume", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const failedArchiveEnv = { ...buildEnv(binDir), CODEX_COMPANION_TEST_ARCHIVE_FAIL: "1" };
+  const first = run("node", [SCRIPT, "task", "--wait", "--json", "preserve this result"], {
+    cwd: repo,
+    env: failedArchiveEnv
+  });
+  assert.equal(first.status, 0, first.stderr);
+  const firstPayload = JSON.parse(first.stdout);
+  assert.match(firstPayload.rawOutput, /Handled the requested task/);
+  assert.equal(firstPayload.threadArchived, false);
+  assert.match(firstPayload.threadArchiveError, /thread\/archive failed/);
+
+  const resumed = run("node", [SCRIPT, "task", "--wait", "--json", "--resume-last", "follow up"], {
+    cwd: repo,
+    env: buildEnv(binDir)
+  });
+  assert.equal(resumed.status, 0, resumed.stderr);
+  const resumedPayload = JSON.parse(resumed.stdout);
+  assert.equal(resumedPayload.threadArchived, true);
+  const state = JSON.parse(fs.readFileSync(path.join(resolveStateDir(repo), "state.json"), "utf8"));
+  const initialJob = state.jobs.find((job) => job.request.prompt === "preserve this result");
+  const resumedJob = state.jobs.find((job) => job.request.prompt === "follow up");
+  assert.equal(initialJob.status, "completed");
+  assert.equal(initialJob.threadArchived, false);
+  assert.match(initialJob.threadArchiveError, /thread\/archive failed/);
+  const storedInitialJob = JSON.parse(fs.readFileSync(resolveJobFile(repo, initialJob.id), "utf8"));
+  const storedResumedJob = JSON.parse(fs.readFileSync(resolveJobFile(repo, resumedJob.id), "utf8"));
+  assert.equal(storedInitialJob.result.threadArchived, false);
+  assert.match(storedInitialJob.result.threadArchiveError, /thread\/archive failed/);
+  assert.match(storedInitialJob.result.rawOutput, /Handled the requested task/);
+  assert.equal(storedResumedJob.result.threadArchived, true);
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.calls.some((call) => call.method === "thread/unarchive"), false);
+  assert.deepEqual(fakeState.threadOperations, [{ method: "thread/archive", threadId: "thr_1" }]);
+});
+
+test("archive timeout preserves task output", { timeout: 15000 }, () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+
+  const result = run("node", [SCRIPT, "task", "--wait", "--json", "preserve timed out archive output"], {
+    cwd: repo,
+    env: { ...buildEnv(binDir), CODEX_COMPANION_TEST_ARCHIVE_HANG: "1" }
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.match(payload.rawOutput, /Handled the requested task/);
+  assert.equal(payload.threadArchived, false);
+  assert.match(payload.threadArchiveError, /thread\/archive timed out after 1000ms/);
 });
 
 test("task forwards model selection and reasoning effort to app-server turn/start", () => {
@@ -1151,6 +1242,7 @@ test("task logs reasoning summaries and assistant messages to the job log", () =
 test("task logs subagent reasoning and messages with a subagent prefix", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
   installFakeCodex(binDir, "with-subagent");
   initGitRepo(repo);
   fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
@@ -1174,6 +1266,9 @@ test("task logs subagent reasoning and messages with a subagent prefix", () => {
     log,
     /The design assumes retries are harmless, but they can duplicate side effects without stronger idempotency guarantees\./
   );
+  assert.deepEqual(JSON.parse(fs.readFileSync(statePath, "utf8")).threadOperations, [
+    { method: "thread/archive", threadId: "thr_1" }
+  ]);
 });
 
 test("task waits for the main thread to complete before returning the final result", () => {
@@ -3416,6 +3511,7 @@ require("node:module").syncBuiltinESMExports();
   assert.equal(terminating.phase, "cancelling");
   assert.equal(terminating.pid, livePid);
   assert.match(terminating.errorMessage, /could not confirm process|timed out while waiting/);
+  assert.equal(Object.hasOwn(terminating, "threadArchived"), false);
   assert.equal(JSON.parse(fs.readFileSync(jobFile, "utf8")).status, "terminating");
   assert.equal(fs.existsSync(logFile), true);
 
@@ -3785,6 +3881,7 @@ test("cancellation control is private, bounded, and terminates the worker tree",
   assert.equal(cancelResult.status, 0, cancelResult.stderr);
   const cancelPayload = JSON.parse(cancelResult.stdout);
   assert.equal(cancelPayload.status, "cancelled");
+  assert.equal(cancelPayload.threadArchived, true);
   assert.equal(cancelPayload.turnInterruptAttempted, true);
   if (cancelPayload.turnInterrupted) {
     await waitFor(() => {
@@ -3798,6 +3895,12 @@ test("cancellation control is private, bounded, and terminates the worker tree",
       turnId: runningJob.turnId
     });
   }
+  const fakeState = JSON.parse(fs.readFileSync(fakeStatePath, "utf8"));
+  assert.deepEqual(fakeState.threadOperations, [{ method: "thread/archive", threadId: runningJob.threadId }]);
+  assert.ok(
+    fakeState.calls.findIndex((call) => call.method === "turn/interrupt") <
+      fakeState.calls.findIndex((call) => call.method === "thread/archive")
+  );
   await waitFor(
     () =>
       descendants.every((pid) => {

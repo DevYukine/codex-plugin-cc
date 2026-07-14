@@ -1001,6 +1001,34 @@ export async function interruptAppServerTurn(cwd, { threadId, turnId }) {
   }
 }
 
+const THREAD_ARCHIVE_TIMEOUT_MS = 1000;
+
+async function requestThreadArchive(client, threadId) {
+  let timer;
+  try {
+    await Promise.race([
+      client.request("thread/archive", { threadId }),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`thread/archive timed out after ${THREAD_ARCHIVE_TIMEOUT_MS}ms.`)),
+          THREAD_ARCHIVE_TIMEOUT_MS
+        );
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function archiveAppServerThread(cwd, threadId) {
+  const client = await CodexAppServerClient.connect(cwd, { reuseExistingBroker: true });
+  try {
+    await requestThreadArchive(client, threadId);
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
 export async function runAppServerReview(cwd, options = {}) {
   const availability = getCodexAvailability(cwd);
   if (!availability.available) {
@@ -1106,6 +1134,9 @@ export async function runAppServerTurn(cwd, options = {}) {
 
     if (options.resumeThreadId) {
       emitProgress(options.onProgress, `Resuming thread ${options.resumeThreadId}.`, "starting");
+      if (options.unarchiveThread) {
+        await client.request("thread/unarchive", { threadId: options.resumeThreadId }).catch(() => {});
+      }
       const response = await resumeThread(client, options.resumeThreadId, cwd, {
         model: options.model,
         sandbox: options.sandbox,
@@ -1148,6 +1179,19 @@ export async function runAppServerTurn(cwd, options = {}) {
       { onProgress: options.onProgress }
     );
 
+    let threadArchived = false;
+    let threadArchiveError = null;
+    if (options.archiveThread && threadId) {
+      try {
+        if (options.shouldArchiveThread?.() !== false) {
+          await requestThreadArchive(client, threadId);
+          threadArchived = true;
+        }
+      } catch (error) {
+        threadArchiveError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
     return {
       status: buildResultStatus(turnState),
       threadId,
@@ -1159,7 +1203,9 @@ export async function runAppServerTurn(cwd, options = {}) {
       stderr: cleanCodexStderr(client.stderr),
       fileChanges: turnState.fileChanges,
       touchedFiles: collectTouchedFiles(turnState.fileChanges),
-      commandExecutions: turnState.commandExecutions
+      commandExecutions: turnState.commandExecutions,
+      threadArchived,
+      ...(threadArchiveError !== null ? { threadArchiveError } : {})
     };
   });
 }

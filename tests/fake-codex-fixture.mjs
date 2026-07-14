@@ -19,7 +19,7 @@ const readline = require("node:readline");
 
 	function loadState() {
 	  if (!fs.existsSync(STATE_PATH)) {
-	    return { nextThreadId: 1, nextTurnId: 1, appServerStarts: 0, threads: [], capabilities: null, lastInterrupt: null };
+	    return { nextThreadId: 1, nextTurnId: 1, appServerStarts: 0, threads: [], capabilities: null, lastInterrupt: null, calls: [], threadOperations: [] };
 	  }
 	  return JSON.parse(fs.readFileSync(STATE_PATH, "utf8"));
 	}
@@ -171,6 +171,10 @@ function emitTurnCompleted(threadId, turnId, item) {
       send({ method: "item/completed", params: { threadId, turnId, item: entry.completed } });
     }
   }
+  const state = loadState();
+  state.calls = state.calls || [];
+  state.calls.push({ method: "turn/completed", threadId, turnId });
+  saveState(state);
   send({ method: "turn/completed", params: { threadId, turn: buildTurn(turnId, "completed") } });
 }
 
@@ -282,6 +286,9 @@ rl.on("line", (line) => {
 
   const message = JSON.parse(line);
   const state = loadState();
+  state.calls = state.calls || [];
+  state.calls.push({ method: message.method, threadId: message.params?.threadId || null });
+  saveState(state);
 
   try {
     switch (message.method) {
@@ -350,6 +357,34 @@ rl.on("line", (line) => {
         thread.updatedAt = now();
         saveState(state);
         send({ id: message.id, result: { thread: buildThread(thread), model: message.params.model || "gpt-5.4", modelProvider: "openai", serviceTier: null, cwd: thread.cwd, approvalPolicy: "never", sandbox: { type: "readOnly", access: { type: "fullAccess" }, networkAccess: false }, reasoningEffort: null } });
+        break;
+      }
+
+      case "thread/archive": {
+        if (process.env.CODEX_COMPANION_TEST_ARCHIVE_HANG === "1") {
+          break;
+        }
+        if (process.env.CODEX_COMPANION_TEST_ARCHIVE_FAIL === "1") {
+          throw new Error("thread/archive failed");
+        }
+        const thread = ensureThread(state, message.params.threadId);
+        thread.archived = true;
+        thread.updatedAt = now();
+        state.threadOperations = state.threadOperations || [];
+        state.threadOperations.push({ method: "thread/archive", threadId: thread.id });
+        saveState(state);
+        send({ id: message.id, result: {} });
+        break;
+      }
+
+      case "thread/unarchive": {
+        const thread = ensureThread(state, message.params.threadId);
+        thread.archived = false;
+        thread.updatedAt = now();
+        state.threadOperations = state.threadOperations || [];
+        state.threadOperations.push({ method: "thread/unarchive", threadId: thread.id });
+        saveState(state);
+        send({ id: message.id, result: {} });
         break;
       }
 
