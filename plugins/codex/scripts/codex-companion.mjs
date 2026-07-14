@@ -73,7 +73,7 @@ const MODEL_ALIASES = new Map([["spark", "gpt-5.3-codex-spark"]]);
 const BUILT_IN_TASK_ROUTES = {
   mechanical: { model: "gpt-5.6-luna", effort: "low" },
   research: { model: "gpt-5.6-terra", effort: "medium" },
-  implementation: { model: "gpt-5.6-terra", effort: "high" },
+  implementation: { model: "gpt-5.6-sol", effort: "high" },
   hard: { model: "gpt-5.6-sol", effort: "xhigh" },
   architecture: { model: "gpt-5.6-sol", effort: "max" },
   parallel: { model: "gpt-5.6-sol", effort: "ultra" }

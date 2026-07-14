@@ -839,7 +839,7 @@ test("task route setup clears overrides and rejects invalid routes", () => {
   result = run("node", [SCRIPT, "task", "--route", "implementation", "cleared route"], { cwd: repo, env });
   assert.equal(result.status, 0, result.stderr);
   const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
-  assert.equal(fakeState.lastTurnStart.model, "gpt-5.6-terra");
+  assert.equal(fakeState.lastTurnStart.model, "gpt-5.6-sol");
   assert.equal(fakeState.lastTurnStart.effort, "high");
 
   const stateFile = path.join(resolveStateDir(repo), "state.json");

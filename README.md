@@ -11,6 +11,7 @@ they already have.
 
 - `/codex:review` for a normal read-only Codex review
 - `/codex:adversarial-review` for a steerable challenge review
+- `/codex:team <task>` for team-routed delegation
 - `/codex:rescue`, `/codex:transfer`, `/codex:status`, `/codex:result`, and `/codex:cancel` to delegate work, hand off sessions, and manage background jobs
 
 ## Requirements
@@ -21,41 +22,12 @@ they already have.
 
 ## Install
 
-### This fork
-
-Clone the feature branch, then add that local checkout as the marketplace:
+Add this fork's merged `main` marketplace:
 
 ```bash
-git clone --branch feat/configurable-model-routing https://github.com/DevYukine/codex-plugin-cc.git
-/plugin marketplace add /absolute/path/to/codex-plugin-cc
+/plugin marketplace add DevYukine/codex-plugin-cc
 /plugin install codex@openai-codex
 /reload-plugins
-/codex:setup
-```
-
-### Upstream
-
-Add the marketplace in Claude Code:
-
-```bash
-/plugin marketplace add openai/codex-plugin-cc
-```
-
-Install the plugin:
-
-```bash
-/plugin install codex@openai-codex
-```
-
-Reload plugins:
-
-```bash
-/reload-plugins
-```
-
-Then run:
-
-```bash
 /codex:setup
 ```
 
@@ -93,6 +65,7 @@ One simple first run is:
 Ask in normal language:
 
 ```text
+/codex:team implement this
 Use GPT 5.6 via codex-plugin-cc to implement this
 Use GPT 5.6 via codex-plugin-cc to implement this --route hard
 Use GPT 5.6 via codex-plugin-cc to implement this --model gpt-5.6-sol --effort xhigh
@@ -100,7 +73,20 @@ Use GPT 5.6 via codex-plugin-cc to implement this --model gpt-5.6-sol --effort x
 
 Fable remains the orchestrator. It researches, plans, chooses routes, hands bounded implementation work to Codex, checks the changes, and sends fixes back when checks fail.
 
-Add a route, model, or effort restriction when needed. Fable chooses the route and forwards restrictions unchanged. Explicit model and effort restrictions override the route independently, and workspace overrides from `/codex:setup` still apply. Saying GPT or Codex without a concrete model asks for delegation, not a model override.
+Use `/codex:team <task>` for the default team, or ask in normal language. Fable chooses the route unless you specify one.
+
+| Owner | Default model and effort | Work |
+| --- | --- | --- |
+| Fable | Manager | Planning, review, architecture, and judgment |
+| Sol | `gpt-5.6-sol` / `high` | Implementation |
+| Sol | `gpt-5.6-sol` / `xhigh` | Difficult debugging |
+| Sol | `gpt-5.6-sol` / `ultra` | Long or parallel code work |
+| Terra | `gpt-5.6-terra` / `medium` | Everyday non-implementation work and drafts |
+| Luna | `gpt-5.6-luna` / `low` | Recon, deterministic bulk work, and background searches |
+
+Workspace route overrides replace built-in route fields. Explicit route, model, and effort restrictions then win independently. Saying GPT or Codex without a concrete model asks for delegation, not a model override.
+
+Fable uses available host browser and computer tools and forwards observations to the selected delegated worker. Sol is the default for diagnosis and code, while explicit overrides win. Delegated workers have workspace shell and read access, plus edit access on `--write` runs, but no direct access to Fable host controls. Read-only delegations cannot edit.
 
 ### `/codex:review`
 
@@ -193,7 +179,7 @@ Ask Codex to redesign the database connection to be more resilient.
   | --- | --- | --- |
   | `mechanical` | `gpt-5.6-luna` | `low` |
   | `research` | `gpt-5.6-terra` | `medium` |
-  | `implementation` | `gpt-5.6-terra` | `high` |
+  | `implementation` | `gpt-5.6-sol` | `high` |
   | `hard` | `gpt-5.6-sol` | `xhigh` |
   | `architecture` | `gpt-5.6-sol` | `max` |
   | `parallel` | `gpt-5.6-sol` | `ultra` |

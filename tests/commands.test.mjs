@@ -84,21 +84,22 @@ test("continue is not exposed as a user-facing command", () => {
   ]);
 });
 
-test("orchestration skill keeps Fable in control while delegating bounded Codex work", () => {
-  const source = read("skills/codex-orchestrator/SKILL.md");
+test("team skill keeps Fable in control while delegating bounded Codex work", () => {
+  const source = read("skills/team/SKILL.md");
   const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+  const commandFiles = fs.readdirSync(path.join(PLUGIN_ROOT, "commands")).sort();
 
-  assert.match(source, /^name:\s*codex-orchestrator$/m);
+  assert.match(source, /^name:\s*team$/m);
   assert.match(source, /description:.*(?:GPT|Codex|codex-plugin-cc)/i);
-  assert.match(source, /^user-invocable:\s*false$/m);
+  assert.match(source, /^argument-hint:\s*"<task> \[--route <name>\] \[--model <model>\] \[--effort <level>\]"$/m);
+  assert.match(source, /^user-invocable:\s*true$/m);
   assert.match(source, /^allowed-tools:\s*Agent$/m);
   assert.doesNotMatch(source, /^context:\s*fork$/m);
-  assert.match(source, /Fable owns repository research, planning, decomposition, sequencing, route selection, verification, retry decisions, and the final response/i);
+  assert.match(source, /Fable owns planning, decomposition, architecture, review, judgment, routing, verification, retries, and the final response/i);
   assert.match(source, /Agent\(subagent_type: "codex:codex-rescue", prompt: "--wait --fresh --write --route implementation/);
-  assert.match(source, /^Agent\(subagent_type: "codex:codex-rescue", prompt: "--wait --fresh --route research \.\.\."\)$/m);
   assert.match(source, /Agent\(subagent_type: "codex:codex-rescue", prompt: "--wait --resume <observed failure and requested delta>"\)/);
   assert.doesNotMatch(source, /Skill\(/);
-  assert.doesNotMatch(source, /\/codex:rescue/);
+  assert.match(source, /Do not invoke a Skill, `\/codex:rescue`, or recursive delegation path/i);
   assert.match(source, /Use `--fresh` for every independent bounded unit/i);
   assert.match(source, /use `--wait --resume` only for a dependent follow-up to that same unit/i);
   assert.match(source, /observed failure and requested delta/i);
@@ -106,24 +107,34 @@ test("orchestration skill keeps Fable in control while delegating bounded Codex 
   assert.match(source, /Treat empty Agent output as a delegation failure\. Report it and direct the user to `\/codex:setup`/i);
   assert.match(source, /do not implement a substitute/i);
   assert.match(source, /Report explicit nonempty failures/i);
-  assert.match(source, /write mode for implementation/i);
-  assert.match(source, /read-only behavior when the user explicitly asks for research, diagnosis, or review/i);
-  assert.match(source, /narrowest configured route/i);
-  assert.match(source, /Fable chooses routing, not the forwarding agent/i);
-  assert.match(source, /append `--route <name>` to each fresh prompt/i);
-  assert.match(source, /`mechanical` for simple edits.*`parallel` for independent units/i);
-  assert.match(source, /Append any explicit `--model <model>` and `--effort <level>` restrictions unchanged/i);
+  assert.match(source, /implementation.*`--write`/i);
+  assert.match(source, /Ordinary implementation: `--route implementation` \(`gpt-5\.6-sol`, `high`\) with `--write`/);
+  assert.match(source, /Difficult debugging: `--route hard` \(`gpt-5\.6-sol`, `xhigh`\)/);
+  assert.match(source, /Long or genuinely parallel coding: `--route parallel` \(`gpt-5\.6-sol`, `ultra`\)/);
+  assert.match(source, /Everyday non-implementation work and drafts: `--route research` \(`gpt-5\.6-terra`, `medium`\), with `--write` only for requested non-code output/);
+  assert.match(source, /Reconnaissance and deterministic bulk or search work: `--route mechanical` \(`gpt-5\.6-luna`, `low`\), read-only unless a bounded mechanical write is requested/);
+  assert.match(source, /Do not infer an architecture or review delegation in team mode/i);
+  assert.match(source, /Preserve explicit `--model <model>` and `--effort <level>` restrictions unchanged/i);
   assert.match(source, /Preserve an explicit `--route` unchanged/i);
   assert.match(source, /Workspace route overrides apply to the chosen route/i);
   assert.match(source, /Explicit model and effort restrictions override that route independently/i);
   assert.match(source, /Generic references to GPT or Codex.*not a literal model override/i);
   assert.match(source, /After every handoff, inspect the changes and run relevant checks/i);
-  assert.match(readme, /Use GPT 5\.6 via codex-plugin-cc to implement this/);
-  assert.match(readme, /Use GPT 5\.6 via codex-plugin-cc to implement this --route hard/);
-  assert.match(readme, /Use GPT 5\.6 via codex-plugin-cc to implement this --model gpt-5\.6-sol --effort xhigh/);
-  assert.match(readme, /Fable remains the orchestrator/i);
-  assert.match(readme, /Fable chooses the route and forwards restrictions unchanged/i);
-  assert.match(readme, /Explicit model and effort restrictions override the route independently, and workspace overrides from `\/codex:setup` still apply/i);
+  assert.match(source, /Delegated Codex cannot receive Fable host browser or computer tools/i);
+  assert.match(source, /forward the exact evidence to the selected delegated worker using the selected route/i);
+  assert.match(source, /Sol is the default for diagnosis and code work, but explicit route, model, and effort overrides still win/i);
+  assert.match(source, /When host tools are unavailable, report that limitation/i);
+  assert.match(source, /Never claim the delegated worker directly used unavailable tools/i);
+  assert.match(readme, /\/codex:team <task>/);
+  assert.match(readme, /\/codex:team implement this/);
+  assert.match(readme, /\| Sol \| `gpt-5\.6-sol` \/ `high` \| Implementation \|/);
+  assert.match(readme, /\| Terra \| `gpt-5\.6-terra` \/ `medium` \| Everyday non-implementation work and drafts \|/);
+  assert.match(readme, /\| Luna \| `gpt-5\.6-luna` \/ `low` \| Recon, deterministic bulk work, and background searches \|/);
+  assert.match(readme, /Workspace route overrides replace built-in route fields\. Explicit route, model, and effort restrictions then win independently/i);
+  assert.match(readme, /forwards observations to the selected delegated worker/i);
+  assert.match(readme, /edit access on `--write` runs/i);
+  assert.match(readme, /Read-only delegations cannot edit/i);
+  assert.equal(commandFiles.includes("team.md"), false);
 });
 
 test("rescue command absorbs continue semantics", () => {
@@ -157,7 +168,7 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(rescue, /default to foreground/i);
   assert.match(rescue, /Do not forward them to `task`/i);
   assert.match(rescue, /`--route`, `--model`, and `--effort` are runtime-selection flags/i);
-  assert.match(rescue, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`parallel` \(`gpt-5\.6-sol`, `ultra`\)/i);
+  assert.match(rescue, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `ultra`\)/i);
   assert.match(rescue, /Workspace route overrides configured by `\/codex:setup` replace built-in model and effort values field by field/i);
   assert.match(rescue, /Explicit `--model` and `--effort` override the selected route independently/i);
   assert.match(rescue, /null model\/effort behavior/i);
@@ -183,7 +194,7 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(agent, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
   assert.match(agent, /Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
   assert.match(agent, /^model:\s*inherit$/m);
-  assert.match(agent, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`parallel` \(`gpt-5\.6-sol`, `ultra`\)/i);
+  assert.match(agent, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `ultra`\)/i);
   assert.match(agent, /workspace route overrides from `\/codex:setup` field by field/i);
   assert.match(agent, /Explicit `--model` and `--effort` override the selected route independently/i);
   assert.match(agent, /null model\/effort behavior/i);
@@ -200,7 +211,7 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(runtimeSkill, /Do not call `setup`, `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
   assert.match(runtimeSkill, /use the `gpt-5-4-prompting` skill to rewrite the user's request into a tighter Codex prompt/i);
   assert.match(runtimeSkill, /That prompt drafting is the only Claude-side work allowed/i);
-  assert.match(runtimeSkill, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`parallel` \(`gpt-5\.6-sol`, `ultra`\)/i);
+  assert.match(runtimeSkill, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `ultra`\)/i);
   assert.match(runtimeSkill, /workspace route overrides from `\/codex:setup` field by field/i);
   assert.match(runtimeSkill, /Explicit `--model` and `--effort` override the selected route independently/i);
   assert.match(runtimeSkill, /null model\/effort behavior/i);
@@ -214,8 +225,7 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(runtimeSkill, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
   assert.match(runtimeSkill, /If the Bash call fails or Codex cannot be invoked, return nothing/i);
   assert.match(readme, /`codex:codex-rescue` subagent/i);
-  assert.match(readme, /git clone --branch feat\/configurable-model-routing https:\/\/github\.com\/DevYukine\/codex-plugin-cc\.git/);
-  assert.match(readme, /\/plugin marketplace add \/absolute\/path\/to\/codex-plugin-cc/);
+  assert.match(readme, /\/plugin marketplace add DevYukine\/codex-plugin-cc/);
   assert.match(readme, /\/plugin install codex@openai-codex/);
   assert.match(readme, /\/reload-plugins/);
   assert.match(readme, /\/codex:setup/);
