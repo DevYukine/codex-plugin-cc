@@ -84,6 +84,48 @@ test("continue is not exposed as a user-facing command", () => {
   ]);
 });
 
+test("orchestration skill keeps Fable in control while delegating bounded Codex work", () => {
+  const source = read("skills/codex-orchestrator/SKILL.md");
+  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+
+  assert.match(source, /^name:\s*codex-orchestrator$/m);
+  assert.match(source, /description:.*(?:GPT|Codex|codex-plugin-cc)/i);
+  assert.match(source, /^user-invocable:\s*false$/m);
+  assert.match(source, /^allowed-tools:\s*Agent$/m);
+  assert.doesNotMatch(source, /^context:\s*fork$/m);
+  assert.match(source, /Fable owns repository research, planning, decomposition, sequencing, route selection, verification, retry decisions, and the final response/i);
+  assert.match(source, /Agent\(subagent_type: "codex:codex-rescue", prompt: "--wait --fresh --write --route implementation/);
+  assert.match(source, /^Agent\(subagent_type: "codex:codex-rescue", prompt: "--wait --fresh --route research \.\.\."\)$/m);
+  assert.match(source, /Agent\(subagent_type: "codex:codex-rescue", prompt: "--wait --resume <observed failure and requested delta>"\)/);
+  assert.doesNotMatch(source, /Skill\(/);
+  assert.doesNotMatch(source, /\/codex:rescue/);
+  assert.match(source, /Use `--fresh` for every independent bounded unit/i);
+  assert.match(source, /use `--wait --resume` only for a dependent follow-up to that same unit/i);
+  assert.match(source, /observed failure and requested delta/i);
+  assert.match(source, /Do not repeat route, model, or effort on resume unless the user changes them/i);
+  assert.match(source, /Treat empty Agent output as a delegation failure\. Report it and direct the user to `\/codex:setup`/i);
+  assert.match(source, /do not implement a substitute/i);
+  assert.match(source, /Report explicit nonempty failures/i);
+  assert.match(source, /write mode for implementation/i);
+  assert.match(source, /read-only behavior when the user explicitly asks for research, diagnosis, or review/i);
+  assert.match(source, /narrowest configured route/i);
+  assert.match(source, /Fable chooses routing, not the forwarding agent/i);
+  assert.match(source, /append `--route <name>` to each fresh prompt/i);
+  assert.match(source, /`mechanical` for simple edits.*`parallel` for independent units/i);
+  assert.match(source, /Append any explicit `--model <model>` and `--effort <level>` restrictions unchanged/i);
+  assert.match(source, /Preserve an explicit `--route` unchanged/i);
+  assert.match(source, /Workspace route overrides apply to the chosen route/i);
+  assert.match(source, /Explicit model and effort restrictions override that route independently/i);
+  assert.match(source, /Generic references to GPT or Codex.*not a literal model override/i);
+  assert.match(source, /After every handoff, inspect the changes and run relevant checks/i);
+  assert.match(readme, /Use GPT 5\.6 via codex-plugin-cc to implement this/);
+  assert.match(readme, /Use GPT 5\.6 via codex-plugin-cc to implement this --route hard/);
+  assert.match(readme, /Use GPT 5\.6 via codex-plugin-cc to implement this --model gpt-5\.6-sol --effort xhigh/);
+  assert.match(readme, /Fable remains the orchestrator/i);
+  assert.match(readme, /Fable chooses the route and forwards restrictions unchanged/i);
+  assert.match(readme, /Explicit model and effort restrictions override the route independently, and workspace overrides from `\/codex:setup` still apply/i);
+});
+
 test("rescue command absorbs continue semantics", () => {
   const rescue = read("commands/rescue.md");
   const agent = read("agents/codex-rescue.md");

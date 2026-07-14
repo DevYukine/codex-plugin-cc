@@ -85,6 +85,20 @@ One simple first run is:
 
 ## Usage
 
+### Let Fable orchestrate Codex
+
+Ask in normal language:
+
+```text
+Use GPT 5.6 via codex-plugin-cc to implement this
+Use GPT 5.6 via codex-plugin-cc to implement this --route hard
+Use GPT 5.6 via codex-plugin-cc to implement this --model gpt-5.6-sol --effort xhigh
+```
+
+Fable remains the orchestrator. It researches, plans, chooses routes, hands bounded implementation work to Codex, checks the changes, and sends fixes back when checks fail.
+
+Add a route, model, or effort restriction when needed. Fable chooses the route and forwards restrictions unchanged. Explicit model and effort restrictions override the route independently, and workspace overrides from `/codex:setup` still apply. Saying GPT or Codex without a concrete model asks for delegation, not a model override.
+
 ### `/codex:review`
 
 Runs a normal Codex review on your current work. It gives you the same quality of code review as running `/review` inside Codex directly.
