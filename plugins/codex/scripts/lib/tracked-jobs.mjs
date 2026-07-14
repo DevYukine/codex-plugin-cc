@@ -184,6 +184,7 @@ export async function runTrackedJob(job, runner, options = {}) {
     const completedAt = nowIso();
     writeJobFile(job.workspaceRoot, job.id, {
       ...existing,
+      ...(runningRecord.request ? { request: runningRecord.request } : {}),
       status: "failed",
       phase: "failed",
       errorMessage,

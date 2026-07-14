@@ -784,6 +784,141 @@ test("task forwards model selection and reasoning effort to app-server turn/star
   assert.equal(fakeState.lastTurnStart.effort, "low");
 });
 
+test("task routes apply built-ins, overrides, and explicit selections independently", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
+  run("git", ["add", "README.md"], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+  const env = buildEnv(binDir);
+
+  let result = run("node", [SCRIPT, "task", "--route", "mechanical", "route default"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  let fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.model, "gpt-5.6-luna");
+  assert.equal(fakeState.lastTurnStart.effort, "low");
+
+  result = run("node", [SCRIPT, "setup", "--route", "implementation", "--model", "custom-model"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  result = run("node", [SCRIPT, "task", "--route", "implementation", "--effort", "medium", "partial override"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.model, "custom-model");
+  assert.equal(fakeState.lastTurnStart.effort, "medium");
+
+  result = run("node", [SCRIPT, "task", "--route", "architecture", "architecture route"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.effort, "max");
+
+  result = run("node", [SCRIPT, "task", "--route", "parallel", "parallel route"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.model, "gpt-5.6-sol");
+  assert.equal(fakeState.lastTurnStart.effort, "ultra");
+});
+
+test("task route setup clears overrides and rejects invalid routes", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
+  run("git", ["add", "README.md"], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+  const env = buildEnv(binDir);
+
+  let result = run("node", [SCRIPT, "setup", "--route", "implementation", "--model", "custom-model"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  result = run("node", [SCRIPT, "setup", "--route", "implementation", "--clear"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  result = run("node", [SCRIPT, "task", "--route", "implementation", "cleared route"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.model, "gpt-5.6-terra");
+  assert.equal(fakeState.lastTurnStart.effort, "high");
+
+  const stateFile = path.join(resolveStateDir(repo), "state.json");
+  const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  state.config.taskRoutes = { custom: {} };
+  fs.writeFileSync(stateFile, `${JSON.stringify(state)}\n`, "utf8");
+  result = run("node", [SCRIPT, "task", "--route", "custom", "invalid route"], { cwd: repo, env });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Custom task route "custom" must define a model or effort/);
+
+  result = run("node", [SCRIPT, "setup", "--model", "orphan-model"], { cwd: repo, env });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /require `--route <name>`/);
+});
+
+test("task routes reject inherited built-in property names without partial setup changes", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  const env = buildEnv(binDir);
+
+  const baseline = run("node", [SCRIPT, "setup", "--disable-review-gate"], { cwd: repo, env });
+  assert.equal(baseline.status, 0, baseline.stderr);
+
+  for (const routeName of ["constructor", "toString", "__proto__"]) {
+    const result = run("node", [SCRIPT, "task", "--route", routeName, "invalid route"], { cwd: repo, env });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(`Unknown task route "${routeName}"`));
+  }
+
+  const result = run(
+    "node",
+    [SCRIPT, "setup", "--enable-review-gate", "--route", "constructor"],
+    { cwd: repo, env }
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Custom task route "constructor" must define a model or effort/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(resolveStateDir(repo), "state.json"), "utf8")).config.stopReviewGate, false);
+});
+
+test("task without a route preserves null settings and resume keeps prior settings", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  fs.writeFileSync(path.join(repo, "README.md"), "hello\n");
+  run("git", ["add", "README.md"], { cwd: repo });
+  run("git", ["commit", "-m", "init"], { cwd: repo });
+  const env = buildEnv(binDir);
+
+  let result = run("node", [SCRIPT, "task", "no route"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  let fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.model, null);
+  assert.equal(fakeState.lastTurnStart.effort, null);
+
+  result = run("node", [SCRIPT, "task", "--model", "saved-model", "--effort", "high", "configured"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  result = run("node", [SCRIPT, "task", "--resume-last", "continue"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.model, "saved-model");
+  assert.equal(fakeState.lastTurnStart.effort, "high");
+  let companionState = JSON.parse(fs.readFileSync(path.join(resolveStateDir(repo), "state.json"), "utf8"));
+  assert.equal(companionState.jobs[0].request.model, "saved-model");
+  assert.equal(companionState.jobs[0].request.effort, "high");
+
+  result = run("node", [SCRIPT, "task", "--resume-last", "--model", "override-model", "override"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(fakeState.lastTurnStart.model, "override-model");
+  assert.equal(fakeState.lastTurnStart.effort, "high");
+  companionState = JSON.parse(fs.readFileSync(path.join(resolveStateDir(repo), "state.json"), "utf8"));
+  assert.equal(companionState.jobs[0].request.model, "override-model");
+  assert.equal(companionState.jobs[0].request.effort, "high");
+});
+
 test("task logs reasoning summaries and assistant messages to the job log", () => {
   const repo = makeTempDir();
   const binDir = makeTempDir();
@@ -967,6 +1102,93 @@ test("task --background enqueues a detached worker and exposes per-job status", 
   assert.equal(resultPayload.job.id, launchPayload.jobId);
   assert.equal(resultPayload.job.status, "completed");
   assert.match(resultPayload.storedJob.rendered, /Handled the requested task/);
+});
+
+test("background task resume resolves and persists inherited and overridden settings", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  const env = buildEnv(binDir);
+
+  const initial = run("node", [SCRIPT, "task", "--model", "saved-model", "--effort", "high", "initial task"], {
+    cwd: repo,
+    env
+  });
+  assert.equal(initial.status, 0, initial.stderr);
+
+  const resume = (selection, expectedModel, expectedEffort) => {
+    const launched = run(
+      "node",
+      [SCRIPT, "task", "--background", "--json", "--resume-last", ...selection, "continue"],
+      { cwd: repo, env }
+    );
+    assert.equal(launched.status, 0, launched.stderr);
+    const jobId = JSON.parse(launched.stdout).jobId;
+    const waited = run("node", [SCRIPT, "status", jobId, "--wait", "--timeout-ms", "15000", "--json"], {
+      cwd: repo,
+      env
+    });
+    assert.equal(waited.status, 0, waited.stderr);
+    assert.equal(JSON.parse(waited.stdout).job.status, "completed");
+
+    const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    assert.equal(fakeState.lastTurnStart.model, expectedModel);
+    assert.equal(fakeState.lastTurnStart.effort, expectedEffort);
+
+    const result = run("node", [SCRIPT, "result", jobId, "--json"], { cwd: repo, env });
+    assert.equal(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.deepEqual(payload.job.request, payload.storedJob.request);
+    assert.equal(payload.storedJob.request.model, expectedModel);
+    assert.equal(payload.storedJob.request.effort, expectedEffort);
+  };
+
+  resume([], "saved-model", "high");
+  resume(["--route", "mechanical"], "gpt-5.6-luna", "low");
+  resume(["--model", "override-model"], "override-model", "low");
+  resume(["--effort", "xhigh"], "override-model", "xhigh");
+});
+
+test("failed background task resume persists resolved settings", () => {
+  const repo = makeTempDir();
+  const binDir = makeTempDir();
+  const statePath = path.join(binDir, "fake-codex-state.json");
+  installFakeCodex(binDir);
+  initGitRepo(repo);
+  const env = buildEnv(binDir);
+
+  const initial = run("node", [SCRIPT, "task", "--model", "saved-model", "--effort", "high", "initial task"], {
+    cwd: repo,
+    env
+  });
+  assert.equal(initial.status, 0, initial.stderr);
+
+  const fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  fakeState.threads = [];
+  fs.writeFileSync(statePath, `${JSON.stringify(fakeState, null, 2)}\n`, "utf8");
+
+  const launched = run(
+    "node",
+    [SCRIPT, "task", "--background", "--json", "--resume-last", "--route", "mechanical", "continue"],
+    { cwd: repo, env }
+  );
+  assert.equal(launched.status, 0, launched.stderr);
+  const jobId = JSON.parse(launched.stdout).jobId;
+  const waited = run("node", [SCRIPT, "status", jobId, "--wait", "--timeout-ms", "15000", "--json"], {
+    cwd: repo,
+    env
+  });
+  assert.equal(waited.status, 0, waited.stderr);
+  assert.equal(JSON.parse(waited.stdout).job.status, "failed");
+
+  const result = run("node", [SCRIPT, "result", jobId, "--json"], { cwd: repo, env });
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.deepEqual(payload.job.request, payload.storedJob.request);
+  assert.equal(payload.storedJob.request.model, "gpt-5.6-luna");
+  assert.equal(payload.storedJob.request.effort, "low");
 });
 
 test("review rejects focus text because it is native-review only", () => {

@@ -18,8 +18,11 @@ Execution rules:
 - Use `task` for every rescue request, including diagnosis, planning, research, and explicit fix requests.
 - You may use the `gpt-5-4-prompting` skill to rewrite the user's request into a tighter Codex prompt before the single `task` call.
 - That prompt drafting is the only Claude-side work allowed. Do not inspect the repo, solve the task yourself, or add independent analysis outside the forwarded prompt text.
-- Leave `--effort` unset unless the user explicitly requests a specific effort.
-- Leave model unset by default. Add `--model` only when the user explicitly asks for one.
+- Built-in routes are: `mechanical` (`gpt-5.6-luna`, `low`), `research` (`gpt-5.6-terra`, `medium`), `implementation` (`gpt-5.6-terra`, `high`), `hard` (`gpt-5.6-sol`, `xhigh`), `architecture` (`gpt-5.6-sol`, `max`), and `parallel` (`gpt-5.6-sol`, `ultra`).
+- The host applies workspace route overrides from `/codex:setup` field by field. Explicit `--model` and `--effort` override the selected route independently.
+- With no `--route`, `--model`, or `--effort`, preserve the current null model/effort behavior.
+- For a fresh run, the host may infer the narrowest matching route. A resumed run keeps its existing model and effort unless `--route`, `--model`, or `--effort` is explicit.
+- Preserve `--route`, `--model`, and `--effort` for host selection. Do not add model or effort values yourself.
 - Map `spark` to `--model gpt-5.3-codex-spark`.
 - Default to a write-capable Codex run by adding `--write` unless the user explicitly asks for read-only behavior or only wants review, diagnosis, or research without edits.
 
@@ -28,16 +31,18 @@ Command selection:
 - If the forwarded request includes `--background` or `--wait`, treat that as Claude-side execution control only. Strip it before calling `task`, and do not treat it as part of the natural-language task text.
 - If the forwarded request includes `--model`, normalize `spark` to `gpt-5.3-codex-spark` and pass it through to `task`.
 - If the forwarded request includes `--effort`, pass it through to `task`.
+- If the forwarded request includes `--route`, pass it through to `task`.
 - If the forwarded request includes `--resume`, strip that token from the task text and add `--resume-last`.
 - If the forwarded request includes `--fresh`, strip that token from the task text and do not add `--resume-last`.
 - `--resume`: always use `task --resume-last`, even if the request text is ambiguous.
 - `--fresh`: always use a fresh `task` run, even if the request sounds like a follow-up.
-- `--effort`: accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`.
+- `--effort`: accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`.
 - `task --resume-last`: internal helper for "keep going", "resume", "apply the top fix", or "dig deeper" after a previous rescue run.
 
 Safety rules:
 - Default to write-capable Codex work in `codex:codex-rescue` unless the user explicitly asks for read-only behavior.
 - Preserve the user's task text as-is apart from stripping routing flags.
+- The host selects or infers routing, then makes exactly one `codex-companion task` call.
 - Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own.
 - Return the stdout of the `task` command exactly as-is.
 - If the Bash call fails or Codex cannot be invoked, return nothing.

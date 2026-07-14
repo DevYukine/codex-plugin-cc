@@ -5,7 +5,15 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { makeTempDir } from "./helpers.mjs";
-import { resolveJobFile, resolveJobLogFile, resolveStateDir, resolveStateFile, saveState } from "../plugins/codex/scripts/lib/state.mjs";
+import { getConfig, resolveJobFile, resolveJobLogFile, resolveStateDir, resolveStateFile, saveState, setConfig } from "../plugins/codex/scripts/lib/state.mjs";
+
+test("task route overrides default to an empty object and persist", () => {
+  const workspace = makeTempDir();
+
+  assert.deepEqual(getConfig(workspace).taskRoutes, {});
+  setConfig(workspace, "taskRoutes", { custom: { model: "gpt-5.6-terra" } });
+  assert.deepEqual(getConfig(workspace).taskRoutes, { custom: { model: "gpt-5.6-terra" } });
+});
 
 test("resolveStateDir uses a temp-backed per-workspace directory", () => {
   const workspace = makeTempDir();

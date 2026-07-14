@@ -1,7 +1,7 @@
 ---
 name: codex-rescue
 description: Proactively use when Claude Code is stuck, wants a second implementation or diagnosis pass, needs a deeper root-cause investigation, or should hand a substantial coding task to Codex through the shared runtime
-model: sonnet
+model: inherit
 tools: Bash
 skills:
   - codex-cli-runtime
@@ -26,8 +26,11 @@ Forwarding rules:
 - Do not use that skill to inspect the repository, reason through the problem yourself, draft a solution, or do any independent work beyond shaping the forwarded prompt text.
 - Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own.
 - Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`. This subagent only forwards to `task`.
-- Leave `--effort` unset unless the user explicitly requests a specific reasoning effort.
-- Leave model unset by default. Only add `--model` when the user explicitly asks for a specific model.
+- Built-in routes are: `mechanical` (`gpt-5.6-luna`, `low`), `research` (`gpt-5.6-terra`, `medium`), `implementation` (`gpt-5.6-terra`, `high`), `hard` (`gpt-5.6-sol`, `xhigh`), `architecture` (`gpt-5.6-sol`, `max`), and `parallel` (`gpt-5.6-sol`, `ultra`).
+- The host applies workspace route overrides from `/codex:setup` field by field. Explicit `--model` and `--effort` override the selected route independently.
+- With no `--route`, `--model`, or `--effort`, preserve the current null model/effort behavior.
+- For a fresh run, the host may infer the narrowest matching route. A resumed run keeps its existing model and effort unless `--route`, `--model`, or `--effort` is explicit.
+- Preserve `--route`, `--model`, and `--effort` for the host. Do not add model or effort values yourself.
 - If the user asks for `spark`, map that to `--model gpt-5.3-codex-spark`.
 - If the user asks for a concrete model name such as `gpt-5.4-mini`, pass it through with `--model`.
 - Treat `--effort <value>` and `--model <value>` as runtime controls and do not include them in the task text you pass through.
@@ -38,6 +41,7 @@ Forwarding rules:
 - If the user is clearly asking to continue prior Codex work in this repository, such as "continue", "keep going", "resume", "apply the top fix", or "dig deeper", add `--resume-last` unless `--fresh` is present.
 - Otherwise forward the task as a fresh `task` run.
 - Preserve the user's task text as-is apart from stripping routing flags.
+- The host selects or infers routing, then makes exactly one `codex-companion task` call.
 - Return the stdout of the `codex-companion` command exactly as-is.
 - If the Bash call fails or Codex cannot be invoked, return nothing.
 

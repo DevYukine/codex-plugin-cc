@@ -1,6 +1,6 @@
 ---
-description: Check whether the local Codex CLI is ready and optionally toggle the stop-time review gate
-argument-hint: '[--enable-review-gate|--disable-review-gate]'
+description: Check whether the local Codex CLI is ready, configure task routes, or toggle the stop-time review gate
+argument-hint: '[--enable-review-gate|--disable-review-gate] [--route <name> [--model <id>] [--effort <level>]|--route <name> --clear]'
 allowed-tools: Bash(node:*), Bash(npm:*), AskUserQuestion
 ---
 

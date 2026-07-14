@@ -30,7 +30,7 @@ import {
   generateJobId,
   getConfig,
   listJobs,
-  setConfig,
+  updateState,
   upsertJob,
   writeJobFile
 } from "./lib/state.mjs";
@@ -68,18 +68,26 @@ const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
 const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
-const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+const VALID_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 const MODEL_ALIASES = new Map([["spark", "gpt-5.3-codex-spark"]]);
+const BUILT_IN_TASK_ROUTES = {
+  mechanical: { model: "gpt-5.6-luna", effort: "low" },
+  research: { model: "gpt-5.6-terra", effort: "medium" },
+  implementation: { model: "gpt-5.6-terra", effort: "high" },
+  hard: { model: "gpt-5.6-sol", effort: "xhigh" },
+  architecture: { model: "gpt-5.6-sol", effort: "max" },
+  parallel: { model: "gpt-5.6-sol", effort: "ultra" }
+};
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
 
 function printUsage() {
   console.log(
     [
       "Usage:",
-      "  node scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
+      "  node scripts/codex-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--route <name> [--model <id>] [--effort <level>]|--route <name> --clear] [--json]",
       "  node scripts/codex-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
       "  node scripts/codex-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [focus text]",
-      "  node scripts/codex-companion.mjs task [--background] [--write] [--resume-last|--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [prompt]",
+      "  node scripts/codex-companion.mjs task [--background] [--write] [--resume-last|--resume|--fresh] [--route <name>] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh|max|ultra>] [prompt]",
       "  node scripts/codex-companion.mjs transfer [--source <claude-jsonl>] [--json]",
       "  node scripts/codex-companion.mjs status [job-id] [--all] [--json]",
       "  node scripts/codex-companion.mjs result [job-id] [--json]",
@@ -121,10 +129,72 @@ function normalizeReasoningEffort(effort) {
   }
   if (!VALID_REASONING_EFFORTS.has(normalized)) {
     throw new Error(
-      `Unsupported reasoning effort "${effort}". Use one of: none, minimal, low, medium, high, xhigh.`
+      `Unsupported reasoning effort "${effort}". Use one of: none, minimal, low, medium, high, xhigh, max, ultra.`
     );
   }
   return normalized;
+}
+
+function normalizeRouteName(route) {
+  const normalized = String(route ?? "").trim();
+  if (!normalized) {
+    throw new Error("A task route name is required.");
+  }
+  return normalized;
+}
+
+function validateTaskRouteOverride(name, override) {
+  if (!override || typeof override !== "object" || Array.isArray(override)) {
+    throw new Error(`Invalid task route configuration for "${name}".`);
+  }
+  for (const key of Object.keys(override)) {
+    if (key !== "model" && key !== "effort") {
+      throw new Error(`Invalid task route configuration for "${name}".`);
+    }
+  }
+  if (Object.hasOwn(override, "model") && (typeof override.model !== "string" || !override.model.trim())) {
+    throw new Error(`Invalid task route model for "${name}".`);
+  }
+  if (Object.hasOwn(override, "effort") && (typeof override.effort !== "string" || !override.effort.trim())) {
+    throw new Error(`Invalid task route effort for "${name}".`);
+  }
+  return {
+    ...(Object.hasOwn(override, "model") ? { model: normalizeRequestedModel(override.model) } : {}),
+    ...(Object.hasOwn(override, "effort") ? { effort: normalizeReasoningEffort(override.effort) } : {})
+  };
+}
+
+function resolveTaskRoute(config, routeName) {
+  const taskRoutes = config.taskRoutes;
+  if (!taskRoutes || typeof taskRoutes !== "object" || Array.isArray(taskRoutes)) {
+    throw new Error("Invalid task route configuration.");
+  }
+  const hasOverride = Object.hasOwn(taskRoutes, routeName);
+  const override = hasOverride ? validateTaskRouteOverride(routeName, taskRoutes[routeName]) : null;
+  const hasBuiltIn = Object.hasOwn(BUILT_IN_TASK_ROUTES, routeName);
+  const builtIn = hasBuiltIn ? BUILT_IN_TASK_ROUTES[routeName] : null;
+  if (!builtIn && !hasOverride) {
+    throw new Error(`Unknown task route "${routeName}".`);
+  }
+  if (!builtIn && !override.model && !override.effort) {
+    throw new Error(`Custom task route "${routeName}" must define a model or effort.`);
+  }
+  return {
+    model: override?.model ?? builtIn?.model ?? null,
+    effort: override?.effort ?? builtIn?.effort ?? null
+  };
+}
+
+function resolveTaskSettings(config, options, resumeRequest = null) {
+  const routeName = Object.hasOwn(options, "route") ? normalizeRouteName(options.route) : null;
+  const explicitModel = Object.hasOwn(options, "model") ? normalizeRequestedModel(options.model) : null;
+  const explicitEffort = Object.hasOwn(options, "effort") ? normalizeReasoningEffort(options.effort) : null;
+  const route = routeName ? resolveTaskRoute(config, routeName) : null;
+
+  return {
+    model: explicitModel ?? route?.model ?? resumeRequest?.model ?? null,
+    effort: explicitEffort ?? route?.effort ?? resumeRequest?.effort ?? null
+  };
 }
 
 function normalizeArgv(argv) {
@@ -214,24 +284,82 @@ async function buildSetupReport(cwd, actionsTaken = []) {
 
 async function handleSetup(argv) {
   const { options } = parseCommandInput(argv, {
-    valueOptions: ["cwd"],
-    booleanOptions: ["json", "enable-review-gate", "disable-review-gate"]
+    valueOptions: ["cwd", "route", "model", "effort"],
+    booleanOptions: ["json", "enable-review-gate", "disable-review-gate", "clear"]
   });
 
   if (options["enable-review-gate"] && options["disable-review-gate"]) {
     throw new Error("Choose either --enable-review-gate or --disable-review-gate.");
   }
+  if (options.clear && !Object.hasOwn(options, "route")) {
+    throw new Error("`--clear` requires `--route <name>`.");
+  }
+  if (options.clear && (Object.hasOwn(options, "model") || Object.hasOwn(options, "effort"))) {
+    throw new Error("`--clear` cannot be combined with `--model` or `--effort`.");
+  }
+  if (!Object.hasOwn(options, "route") && (Object.hasOwn(options, "model") || Object.hasOwn(options, "effort"))) {
+    throw new Error("`--model` and `--effort` require `--route <name>`.");
+  }
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
   const actionsTaken = [];
+  const config = getConfig(workspaceRoot);
+  const nextConfig = { ...config };
 
   if (options["enable-review-gate"]) {
-    setConfig(workspaceRoot, "stopReviewGate", true);
+    nextConfig.stopReviewGate = true;
     actionsTaken.push(`Enabled the stop-time review gate for ${workspaceRoot}.`);
   } else if (options["disable-review-gate"]) {
-    setConfig(workspaceRoot, "stopReviewGate", false);
+    nextConfig.stopReviewGate = false;
     actionsTaken.push(`Disabled the stop-time review gate for ${workspaceRoot}.`);
+  }
+
+  if (Object.hasOwn(options, "route")) {
+    const routeName = normalizeRouteName(options.route);
+    const taskRoutes = config.taskRoutes;
+    if (!taskRoutes || typeof taskRoutes !== "object" || Array.isArray(taskRoutes)) {
+      throw new Error("Invalid task route configuration.");
+    }
+
+    if (options.clear) {
+      const nextRoutes = { ...taskRoutes };
+      delete nextRoutes[routeName];
+      nextConfig.taskRoutes = nextRoutes;
+      actionsTaken.push(`Cleared the task route override for ${routeName}.`);
+    } else {
+      const override = Object.hasOwn(taskRoutes, routeName)
+        ? validateTaskRouteOverride(routeName, taskRoutes[routeName])
+        : {};
+      if (Object.hasOwn(options, "model")) {
+        const model = normalizeRequestedModel(options.model);
+        if (!model) {
+          throw new Error("A task route model is required.");
+        }
+        override.model = model;
+      }
+      if (Object.hasOwn(options, "effort")) {
+        const effort = normalizeReasoningEffort(options.effort);
+        if (!effort) {
+          throw new Error("A task route effort is required.");
+        }
+        override.effort = effort;
+      }
+      if (!Object.hasOwn(BUILT_IN_TASK_ROUTES, routeName) && !override.model && !override.effort) {
+        throw new Error(`Custom task route "${routeName}" must define a model or effort.`);
+      }
+      nextConfig.taskRoutes = {
+        ...taskRoutes,
+        [routeName]: override
+      };
+      actionsTaken.push(`Configured the task route override for ${routeName}.`);
+    }
+  }
+
+  if (actionsTaken.length > 0) {
+    updateState(workspaceRoot, (state) => {
+      state.config = nextConfig;
+    });
   }
 
   const finalReport = await buildSetupReport(cwd, actionsTaken);
@@ -345,7 +473,7 @@ async function resolveLatestTrackedTaskThread(cwd, options = {}) {
 
   const trackedTask = findLatestResumableTaskJob(visibleJobs);
   if (trackedTask) {
-    return { id: trackedTask.threadId };
+    return { id: trackedTask.threadId, request: trackedTask.request ?? null };
   }
 
   if (sessionId) {
@@ -476,6 +604,12 @@ async function executeTaskRun(request) {
       throw new Error("No previous Codex task thread was found for this repository.");
     }
     resumeThreadId = latestThread.id;
+    Object.assign(request, resolveTaskSettings(getConfig(workspaceRoot), request, latestThread.request));
+    const resolvedRequest = buildTaskRequest(request);
+    upsertJob(workspaceRoot, {
+      id: request.jobId,
+      request: resolvedRequest
+    });
   }
 
   if (!request.prompt && !resumeThreadId) {
@@ -761,7 +895,7 @@ async function handleReview(argv) {
 
 async function handleTask(argv) {
   const { options, positionals } = parseCommandInput(argv, {
-    valueOptions: ["model", "effort", "cwd", "prompt-file"],
+    valueOptions: ["route", "model", "effort", "cwd", "prompt-file"],
     booleanOptions: ["json", "write", "resume-last", "resume", "fresh", "background"],
     aliasMap: {
       m: "model"
@@ -770,8 +904,7 @@ async function handleTask(argv) {
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveCommandWorkspace(options);
-  const model = normalizeRequestedModel(options.model);
-  const effort = normalizeReasoningEffort(options.effort);
+  const { model, effort } = resolveTaskSettings(getConfig(workspaceRoot), options);
   const prompt = readTaskPrompt(cwd, options, positionals);
 
   const resumeLast = Boolean(options["resume-last"] || options.resume);
@@ -799,25 +932,29 @@ async function handleTask(argv) {
       resumeLast,
       jobId: job.id
     });
+    job.request = request;
     const { payload } = enqueueBackgroundTask(cwd, job, request);
     outputCommandResult(payload, renderQueuedTaskLaunch(payload), options.json);
     return;
   }
 
   const job = buildTaskJob(workspaceRoot, taskMetadata, write);
+  const request = buildTaskRequest({
+    cwd,
+    model,
+    effort,
+    prompt,
+    write,
+    resumeLast,
+    jobId: job.id
+  });
+  job.request = request;
   await runForegroundCommand(
     job,
-    (progress) =>
-      executeTaskRun({
-        cwd,
-        model,
-        effort,
-        prompt,
-        write,
-        resumeLast,
-        jobId: job.id,
-        onProgress: progress
-      }),
+    (progress) => {
+      request.onProgress = progress;
+      return executeTaskRun(request);
+    },
     { json: options.json }
   );
 }
@@ -871,11 +1008,10 @@ async function handleTaskWorker(argv) {
       workspaceRoot,
       logFile
     },
-    () =>
-      executeTaskRun({
-        ...request,
-        onProgress: progress
-      }),
+    () => {
+      request.onProgress = progress;
+      return executeTaskRun(request);
+    },
     { logFile }
   );
 }
