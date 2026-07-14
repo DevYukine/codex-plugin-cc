@@ -23,8 +23,11 @@ they already have.
 
 ### This fork
 
+Clone the feature branch, then add that local checkout as the marketplace:
+
 ```bash
-/plugin marketplace add DevYukine/codex-plugin-cc
+git clone --branch feat/configurable-model-routing https://github.com/DevYukine/codex-plugin-cc.git
+/plugin marketplace add /absolute/path/to/codex-plugin-cc
 /plugin install codex@openai-codex
 /reload-plugins
 /codex:setup

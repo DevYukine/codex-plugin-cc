@@ -214,7 +214,8 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(runtimeSkill, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
   assert.match(runtimeSkill, /If the Bash call fails or Codex cannot be invoked, return nothing/i);
   assert.match(readme, /`codex:codex-rescue` subagent/i);
-  assert.match(readme, /\/plugin marketplace add DevYukine\/codex-plugin-cc/);
+  assert.match(readme, /git clone --branch feat\/configurable-model-routing https:\/\/github\.com\/DevYukine\/codex-plugin-cc\.git/);
+  assert.match(readme, /\/plugin marketplace add \/absolute\/path\/to\/codex-plugin-cc/);
   assert.match(readme, /\/plugin install codex@openai-codex/);
   assert.match(readme, /\/reload-plugins/);
   assert.match(readme, /\/codex:setup/);
