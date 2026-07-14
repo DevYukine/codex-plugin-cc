@@ -818,7 +818,7 @@ test("task routes apply built-ins, overrides, and explicit selections independen
   assert.equal(result.status, 0, result.stderr);
   fakeState = JSON.parse(fs.readFileSync(statePath, "utf8"));
   assert.equal(fakeState.lastTurnStart.model, "gpt-5.6-sol");
-  assert.equal(fakeState.lastTurnStart.effort, "ultra");
+  assert.equal(fakeState.lastTurnStart.effort, "max");
 });
 
 test("task route setup clears overrides and rejects invalid routes", () => {

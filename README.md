@@ -80,7 +80,7 @@ Use `/codex:team <task>` for the default team, or ask in normal language. Fable 
 | Fable | Manager | Planning, review, architecture, and judgment |
 | Sol | `gpt-5.6-sol` / `high` | Implementation |
 | Sol | `gpt-5.6-sol` / `xhigh` | Difficult debugging |
-| Sol | `gpt-5.6-sol` / `ultra` | Long or parallel code work |
+| Sol | `gpt-5.6-sol` / `max` | Long or parallel code work |
 | Terra | `gpt-5.6-terra` / `medium` | Everyday non-implementation work and drafts |
 | Luna | `gpt-5.6-luna` / `low` | Recon, deterministic bulk work, and background searches |
 
@@ -182,7 +182,7 @@ Ask Codex to redesign the database connection to be more resilient.
   | `implementation` | `gpt-5.6-sol` | `high` |
   | `hard` | `gpt-5.6-sol` | `xhigh` |
   | `architecture` | `gpt-5.6-sol` | `max` |
-  | `parallel` | `gpt-5.6-sol` | `ultra` |
+  | `parallel` | `gpt-5.6-sol` | `max` |
 
 - `/codex:setup` workspace route overrides replace route model and effort values field by field.
 - explicit `--model` and `--effort` override a route independently.

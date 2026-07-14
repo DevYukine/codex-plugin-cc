@@ -28,7 +28,7 @@ Choose defaults only when the user did not provide a route:
 
 - Ordinary implementation: `--route implementation` (`gpt-5.6-sol`, `high`) with `--write`.
 - Difficult debugging: `--route hard` (`gpt-5.6-sol`, `xhigh`).
-- Long or genuinely parallel coding: `--route parallel` (`gpt-5.6-sol`, `ultra`).
+- Long or genuinely parallel coding: `--route parallel` (`gpt-5.6-sol`, `max`).
 - Everyday non-implementation work and drafts: `--route research` (`gpt-5.6-terra`, `medium`), with `--write` only for requested non-code output.
 - Reconnaissance and deterministic bulk or search work: `--route mechanical` (`gpt-5.6-luna`, `low`), read-only unless a bounded mechanical write is requested.
 

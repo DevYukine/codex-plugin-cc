@@ -110,7 +110,7 @@ test("team skill keeps Fable in control while delegating bounded Codex work", ()
   assert.match(source, /implementation.*`--write`/i);
   assert.match(source, /Ordinary implementation: `--route implementation` \(`gpt-5\.6-sol`, `high`\) with `--write`/);
   assert.match(source, /Difficult debugging: `--route hard` \(`gpt-5\.6-sol`, `xhigh`\)/);
-  assert.match(source, /Long or genuinely parallel coding: `--route parallel` \(`gpt-5\.6-sol`, `ultra`\)/);
+  assert.match(source, /Long or genuinely parallel coding: `--route parallel` \(`gpt-5\.6-sol`, `max`\)/);
   assert.match(source, /Everyday non-implementation work and drafts: `--route research` \(`gpt-5\.6-terra`, `medium`\), with `--write` only for requested non-code output/);
   assert.match(source, /Reconnaissance and deterministic bulk or search work: `--route mechanical` \(`gpt-5\.6-luna`, `low`\), read-only unless a bounded mechanical write is requested/);
   assert.match(source, /Do not infer an architecture or review delegation in team mode/i);
@@ -168,7 +168,7 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(rescue, /default to foreground/i);
   assert.match(rescue, /Do not forward them to `task`/i);
   assert.match(rescue, /`--route`, `--model`, and `--effort` are runtime-selection flags/i);
-  assert.match(rescue, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `ultra`\)/i);
+  assert.match(rescue, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `max`\)/i);
   assert.match(rescue, /Workspace route overrides configured by `\/codex:setup` replace built-in model and effort values field by field/i);
   assert.match(rescue, /Explicit `--model` and `--effort` override the selected route independently/i);
   assert.match(rescue, /null model\/effort behavior/i);
@@ -194,7 +194,7 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(agent, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
   assert.match(agent, /Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
   assert.match(agent, /^model:\s*inherit$/m);
-  assert.match(agent, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `ultra`\)/i);
+  assert.match(agent, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `max`\)/i);
   assert.match(agent, /workspace route overrides from `\/codex:setup` field by field/i);
   assert.match(agent, /Explicit `--model` and `--effort` override the selected route independently/i);
   assert.match(agent, /null model\/effort behavior/i);
@@ -211,7 +211,7 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(runtimeSkill, /Do not call `setup`, `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
   assert.match(runtimeSkill, /use the `gpt-5-4-prompting` skill to rewrite the user's request into a tighter Codex prompt/i);
   assert.match(runtimeSkill, /That prompt drafting is the only Claude-side work allowed/i);
-  assert.match(runtimeSkill, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `ultra`\)/i);
+  assert.match(runtimeSkill, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `max`\)/i);
   assert.match(runtimeSkill, /workspace route overrides from `\/codex:setup` field by field/i);
   assert.match(runtimeSkill, /Explicit `--model` and `--effort` override the selected route independently/i);
   assert.match(runtimeSkill, /null model\/effort behavior/i);
@@ -230,7 +230,7 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(readme, /\/reload-plugins/);
   assert.match(readme, /\/codex:setup/);
   assert.match(readme, /\| `mechanical` \| `gpt-5\.6-luna` \| `low` \|/);
-  assert.match(readme, /\| `parallel` \| `gpt-5\.6-sol` \| `ultra` \|/);
+  assert.match(readme, /\| `parallel` \| `gpt-5\.6-sol` \| `max` \|/);
   assert.match(readme, /\/codex:setup --route implementation --model gpt-5\.6-terra --effort high/);
   assert.match(readme, /\/codex:setup --route implementation --clear/);
   assert.match(readme, /explicit `--model` and `--effort` override a route independently/i);

@@ -76,7 +76,7 @@ const BUILT_IN_TASK_ROUTES = {
   implementation: { model: "gpt-5.6-sol", effort: "high" },
   hard: { model: "gpt-5.6-sol", effort: "xhigh" },
   architecture: { model: "gpt-5.6-sol", effort: "max" },
-  parallel: { model: "gpt-5.6-sol", effort: "ultra" }
+  parallel: { model: "gpt-5.6-sol", effort: "max" }
 };
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
 
