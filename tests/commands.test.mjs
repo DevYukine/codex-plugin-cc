@@ -96,12 +96,24 @@ test("team skill keeps Fable in control while delegating bounded Codex work", ()
   assert.match(source, /^allowed-tools:\s*Agent$/m);
   assert.doesNotMatch(source, /^context:\s*fork$/m);
   assert.match(source, /Fable owns planning, decomposition, architecture, review, judgment, routing, verification, retries, and the final response/i);
+  assert.match(source, /Each delegation has exactly one `Agent\(subagent_type: "codex:codex-rescue", \.\.\.\)` forward/i);
   assert.match(source, /Agent\(subagent_type: "codex:codex-rescue", prompt: "--wait --fresh --write --route implementation/);
   assert.match(source, /Agent\(subagent_type: "codex:codex-rescue", prompt: "--wait --resume <observed failure and requested delta>"\)/);
   assert.doesNotMatch(source, /Skill\(/);
   assert.match(source, /Do not invoke a Skill, `\/codex:rescue`, or recursive delegation path/i);
   assert.match(source, /Use `--fresh` for every independent bounded unit/i);
   assert.match(source, /use `--wait --resume` only for a dependent follow-up to that same unit/i);
+  assert.match(source, /active `waitTimedOut: true` result is a durable handoff/i);
+  assert.match(source, /Preserve its `jobId`/i);
+  assert.match(source, /Repeated attaches are idempotent and start no new implementation turn while active/i);
+  assert.match(source, /Delegated write runs use `features\.multi_agent=false`/i);
+  assert.match(source, /single senior developer, not an internal-subagent coordinator/i);
+  assert.match(source, /install was blocked by registry or network policy/i);
+  assert.match(source, /workspace's existing package manager, proxy, and registry configuration/i);
+  assert.match(source, /then makes one `--wait --resume` delegation to continue the same thread/i);
+  assert.match(source, /Do not broaden network access, add wildcard allowlists, escalate privileges, or retry an active task/i);
+  assert.doesNotMatch(source, /monitoring loop/i);
+  assert.doesNotMatch(source, /Resume the same unit with observed failures until it is complete/i);
   assert.match(source, /observed failure and requested delta/i);
   assert.match(source, /Do not repeat route, model, or effort on resume unless the user changes them/i);
   assert.match(source, /Treat empty Agent output as a delegation failure\. Report it and direct the user to `\/codex:setup`/i);
@@ -119,7 +131,7 @@ test("team skill keeps Fable in control while delegating bounded Codex work", ()
   assert.match(source, /Workspace route overrides apply to the chosen route/i);
   assert.match(source, /Explicit model and effort restrictions override that route independently/i);
   assert.match(source, /Generic references to GPT or Codex.*not a literal model override/i);
-  assert.match(source, /After every handoff, inspect the changes and run relevant checks/i);
+  assert.match(source, /After a completed handoff, inspect the changes and run relevant checks/i);
   assert.match(source, /Delegated Codex cannot receive Fable host browser or computer tools/i);
   assert.match(source, /forward the exact evidence to the selected delegated worker using the selected route/i);
   assert.match(source, /Sol is the default for diagnosis and code work, but explicit route, model, and effort overrides still win/i);
@@ -144,7 +156,11 @@ test("rescue command absorbs continue semantics", () => {
   const runtimeSkill = read("skills/codex-cli-runtime/SKILL.md");
 
   assert.match(rescue, /The final user-visible response must be Codex's output verbatim/i);
-  assert.match(rescue, /allowed-tools:\s*Bash\(node:\*\),\s*AskUserQuestion,\s*Agent/);
+  assert.equal(
+    rescue.match(/^allowed-tools:\s*(.+)$/m)?.[1],
+    "Bash(node:*), AskUserQuestion, Agent"
+  );
+  assert.doesNotMatch(rescue, /^allowed-tools:.*Bash\((?:npm|pnpm|yarn|bun)\b/m);
   // Regression for #234: `Skill(codex:rescue)` from the main agent recursed
   // because rescue.md named the routing with ambiguous prose ("Route this
   // request to the `codex:codex-rescue` subagent") while running under
@@ -166,7 +182,8 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(rescue, /run the `codex:codex-rescue` subagent in the background/i);
   assert.match(rescue, /forwarding the selected request as the prompt/i);
   assert.match(rescue, /default to foreground/i);
-  assert.match(rescue, /Do not forward them to `task`/i);
+  assert.match(rescue, /Preserve `--wait` in the forwarded request/i);
+  assert.doesNotMatch(rescue, /`--wait`[^\n]*Do not forward[^\n]*`task`/i);
   assert.match(rescue, /`--route`, `--model`, and `--effort` are runtime-selection flags/i);
   assert.match(rescue, /Built-in routes are: `mechanical` \(`gpt-5\.6-luna`, `low`\).*`implementation` \(`gpt-5\.6-sol`, `high`\).*`parallel` \(`gpt-5\.6-sol`, `max`\)/i);
   assert.match(rescue, /Workspace route overrides configured by `\/codex:setup` replace built-in model and effort values field by field/i);
@@ -175,6 +192,23 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(rescue, /fresh request with no `--route`, `--model`, or `--effort`, choose the narrowest built-in route when appropriate and append `--route <name>` before delegating/i);
   assert.match(rescue, /On resume, do not infer a route or replace existing settings/i);
   assert.match(rescue, /After route selection.*exactly one `Bash` call.* task .*, forward the selected request unchanged, and return that command's stdout as-is/is);
+  assert.match(rescue, /exactly one `Agent\(subagent_type: "codex:codex-rescue", \.\.\.\)` forward per delegation/i);
+  assert.match(rescue, /active result with `waitTimedOut: true` is a durable handoff/i);
+  assert.match(rescue, /preserve its `jobId`/i);
+  assert.match(rescue, /Repeated attaches are idempotent and start no new implementation turn while it is active/i);
+  assert.match(rescue, /Delegated write runs set `features\.multi_agent=false`/i);
+  assert.match(rescue, /exact required install host-side/i);
+  assert.match(rescue, /Select the package manager from the workspace's `packageManager` field or lockfile/i);
+  assert.match(rescue, /Run only one matching `npm install`.*`bun add` command/i);
+  assert.match(rescue, /working directory at the current workspace root/i);
+  assert.match(rescue, /Before asking for approval, validate every argument/i);
+  assert.match(rescue, /Reject any unknown argument, shell operator.*path outside the current workspace/i);
+  assert.match(rescue, /Use `AskUserQuestion` to show the exact command and workspace root/i);
+  assert.match(rescue, /Run it only after the user explicitly approves it/i);
+  assert.match(rescue, /Package-manager Bash permissions are intentionally absent from `allowed-tools`/i);
+  assert.match(rescue, /approve only that invocation and do not add a persistent permission/i);
+  assert.match(rescue, /If validation fails or the user declines, do not install or resume/i);
+  assert.doesNotMatch(rescue, /monitoring loop/i);
   assert.match(rescue, /If they ask for `spark`, map it to `gpt-5\.3-codex-spark`/i);
   assert.match(rescue, /If the request includes `--resume`, do not ask whether to continue/i);
   assert.match(rescue, /If the request includes `--fresh`, do not ask whether to continue/i);
@@ -191,6 +225,12 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(agent, /prefer foreground for a small, clearly bounded rescue request/i);
   assert.match(agent, /If the user did not explicitly choose `--background` or `--wait` and the task looks complicated, open-ended, multi-step, or likely to keep Codex running for a long time, prefer background execution/i);
   assert.match(agent, /Use exactly one `Bash` call/i);
+  assert.match(agent, /active `waitTimedOut: true` result unchanged, including its `jobId`/i);
+  assert.match(agent, /idempotent while active, and starts no new implementation turn/i);
+  assert.match(agent, /Write runs use `features\.multi_agent=false`/i);
+  assert.match(agent, /^tools:\s*Bash$/m);
+  assert.doesNotMatch(agent, /^allowed-tools:/m);
+  assert.match(agent, /Never invoke a package manager or install dependencies\. Fable owns any separately approved host-side install/i);
   assert.match(agent, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
   assert.match(agent, /Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
   assert.match(agent, /^model:\s*inherit$/m);
@@ -218,8 +258,13 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(runtimeSkill, /fresh run, the host may infer the narrowest matching route/i);
   assert.match(runtimeSkill, /resumed run keeps its existing model and effort unless `--route`, `--model`, or `--effort` is explicit/i);
   assert.match(runtimeSkill, /Map `spark` to `--model gpt-5\.3-codex-spark`/i);
-  assert.match(runtimeSkill, /If the forwarded request includes `--background` or `--wait`, treat that as Claude-side execution control only/i);
-  assert.match(runtimeSkill, /Strip it before calling `task`/i);
+  assert.match(runtimeSkill, /active `waitTimedOut: true` result is a durable handoff/i);
+  assert.match(runtimeSkill, /with its `jobId`/i);
+  assert.match(runtimeSkill, /task --wait --resume <delta>/i);
+  assert.match(runtimeSkill, /idempotent while active/i);
+  assert.match(runtimeSkill, /Write runs use `features\.multi_agent=false`/i);
+  assert.match(runtimeSkill, /If the forwarded request includes `--background`, treat it as execution control only/i);
+  assert.match(runtimeSkill, /If the forwarded request includes `--wait`, pass it through to `task`/i);
   assert.match(runtimeSkill, /If the forwarded request includes `--route`, pass it through to `task`/i);
   assert.match(runtimeSkill, /`--effort`: accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`/i);
   assert.match(runtimeSkill, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
@@ -240,6 +285,13 @@ test("rescue command absorbs continue semantics", () => {
   assert.match(readme, /--model gpt-5\.4-mini --effort medium/i);
   assert.match(readme, /`spark`, the plugin maps that to `gpt-5\.3-codex-spark`/i);
   assert.match(readme, /continue a previous Codex task/i);
+  assert.match(readme, /active `waitTimedOut: true` result is a durable handoff/i);
+  assert.match(readme, /It preserves `jobId`/i);
+  assert.match(readme, /Repeated attaches are idempotent and start no new implementation turn while active/i);
+  assert.match(readme, /Delegated write runs use `features\.multi_agent=false`/i);
+  assert.match(readme, /exact required install host-side/i);
+  assert.match(readme, /workspace's existing package manager, proxy, and registry configuration/i);
+  assert.doesNotMatch(readme, /monitoring loop/i);
   assert.match(readme, /### `\/codex:setup`/);
   assert.match(readme, /### `\/codex:review`/);
   assert.match(readme, /### `\/codex:adversarial-review`/);
@@ -276,7 +328,7 @@ test("internal docs use task terminology for rescue runs", () => {
 
   assert.match(runtimeSkill, /codex-companion\.mjs" task "<raw arguments>"/);
   assert.match(runtimeSkill, /Use `task` for every rescue request/i);
-  assert.match(runtimeSkill, /task --resume-last/i);
+  assert.match(runtimeSkill, /task --wait --resume <delta>/i);
   assert.match(promptingSkill, /Use `task` when the task is diagnosis/i);
   assert.match(promptRecipes, /Codex task prompts/i);
   assert.match(promptRecipes, /Use these as starting templates for Codex task prompts/i);

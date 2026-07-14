@@ -67,7 +67,8 @@ function buildThreadParams(cwd, options = {}) {
     approvalPolicy: options.approvalPolicy ?? "never",
     sandbox: options.sandbox ?? "read-only",
     serviceName: SERVICE_NAME,
-    ephemeral: options.ephemeral ?? true
+    ephemeral: options.ephemeral ?? true,
+    ...(options.config ? { config: options.config } : {})
   };
 }
 
@@ -78,7 +79,8 @@ function buildResumeParams(threadId, cwd, options = {}) {
     cwd,
     model: options.model ?? null,
     approvalPolicy: options.approvalPolicy ?? "never",
-    sandbox: options.sandbox ?? "read-only"
+    sandbox: options.sandbox ?? "read-only",
+    ...(options.config ? { config: options.config } : {})
   };
 }
 
@@ -1098,7 +1100,8 @@ export async function runAppServerTurn(cwd, options = {}) {
     throw new Error("Codex CLI is not installed or is missing required runtime support. Install it with `npm install -g @openai/codex`, then rerun `/codex:setup`.");
   }
 
-  return withAppServer(cwd, async (client) => {
+  const withServer = options.directAppServer ? withDirectAppServer : withAppServer;
+  return withServer(cwd, async (client) => {
     let threadId;
 
     if (options.resumeThreadId) {
@@ -1106,7 +1109,8 @@ export async function runAppServerTurn(cwd, options = {}) {
       const response = await resumeThread(client, options.resumeThreadId, cwd, {
         model: options.model,
         sandbox: options.sandbox,
-        ephemeral: false
+        ephemeral: false,
+        config: options.config
       });
       threadId = response.thread.id;
     } else {
@@ -1115,7 +1119,8 @@ export async function runAppServerTurn(cwd, options = {}) {
         model: options.model,
         sandbox: options.sandbox,
         ephemeral: options.persistThread ? false : true,
-        threadName: options.persistThread ? options.threadName : options.threadName ?? null
+        threadName: options.persistThread ? options.threadName : options.threadName ?? null,
+        config: options.config
       });
       threadId = response.thread.id;
     }

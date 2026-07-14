@@ -16,7 +16,8 @@ Execution mode:
 - If the request includes `--background`, run the `codex:codex-rescue` subagent in the background.
 - If the request includes `--wait`, run the `codex:codex-rescue` subagent in the foreground.
 - If neither flag is present, default to foreground.
-- `--background` and `--wait` are execution flags for Claude Code. Do not forward them to `task`, and do not treat them as part of the natural-language task text.
+- `--background` is an execution flag for Claude Code. Do not forward it to `task`, and do not treat it as part of the natural-language task text.
+- `--wait` is an execution flag for Claude Code and runtime control for `task`. Preserve `--wait` in the forwarded request, but do not treat it as part of the natural-language task text.
 - `--route`, `--model`, and `--effort` are runtime-selection flags. Preserve them for the forwarded `task` call, but do not treat them as part of the natural-language task text.
 - If the request includes `--resume`, do not ask whether to continue. The user already chose.
 - If the request includes `--fresh`, do not ask whether to continue. The user already chose.
@@ -46,6 +47,15 @@ Routing:
 
 Operating rules:
 
+- Fable makes exactly one `Agent(subagent_type: "codex:codex-rescue", ...)` forward per delegation. Do not start another Agent to wait, monitor, poll, or repeat the request.
+- An active result with `waitTimedOut: true` is a durable handoff, not a claim that the wrapper is still waiting. Return it verbatim and preserve its `jobId`.
+- A later explicit or user-driven `--wait --resume <delta>` attaches to that same active task. Repeated attaches are idempotent and start no new implementation turn while it is active. `--fresh` explicitly starts a new task.
+- Delegated write runs set `features.multi_agent=false`. Fable remains the manager and the delegated model is a single senior developer, not an internal-subagent coordinator.
+- If a completed delegated result says an install was blocked by registry or network policy, Fable may perform the exact required install host-side using the workspace's existing package manager, proxy, and registry configuration. Then make one `--wait --resume` delegation with the requested delta.
+- Select the package manager from the workspace's `packageManager` field or lockfile. Run only one matching `npm install`, `npm ci`, `pnpm install`, `pnpm add`, `yarn install`, `yarn add`, `bun install`, or `bun add` command, with its working directory at the current workspace root.
+- Before asking for approval, validate every argument. Allow only registry dependency specifiers named by the completed result, dependency-class or lockfile flags required for that install, and workspace selectors whose targets are declared by the local workspace manifest. Reject any unknown argument, shell operator, command substitution, redirection, environment assignment, global or working-directory flag, script or executable subcommand, registry, proxy, or config override, URL, VCS or file specifier, credential, or path outside the current workspace.
+- Use `AskUserQuestion` to show the exact command and workspace root. Run it only after the user explicitly approves it. Package-manager Bash permissions are intentionally absent from `allowed-tools`; approve only that invocation and do not add a persistent permission.
+- If validation fails or the user declines, do not install or resume. Report the reason. Do not broaden network access, add wildcard allowlists, escalate privileges, or retry an active task.
 - After route selection, the subagent is a thin forwarder only. It should use exactly one `Bash` call to invoke `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task ...`, forward the selected request unchanged, and return that command's stdout as-is.
 - Return the Codex companion stdout verbatim to the user.
 - Do not paraphrase, summarize, rewrite, or add commentary before or after it.

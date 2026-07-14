@@ -20,6 +20,10 @@ Selection guidance:
 Forwarding rules:
 
 - Use exactly one `Bash` call to invoke `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task ...`.
+- Return an active `waitTimedOut: true` result unchanged, including its `jobId`. It is a durable handoff, not a continuing wait.
+- Do not start another task call to wait, monitor, poll, or retry an active task. An explicit `--wait --resume <delta>` attaches to the same active task, is idempotent while active, and starts no new implementation turn. `--fresh` explicitly starts a new task.
+- Write runs use `features.multi_agent=false`. The delegated model is one senior developer and must not create internal subagents.
+- Never invoke a package manager or install dependencies. Fable owns any separately approved host-side install.
 - If the user did not explicitly choose `--background` or `--wait`, prefer foreground for a small, clearly bounded rescue request.
 - If the user did not explicitly choose `--background` or `--wait` and the task looks complicated, open-ended, multi-step, or likely to keep Codex running for a long time, prefer background execution.
 - You may use the `gpt-5-4-prompting` skill only to tighten the user's request into a better Codex prompt before forwarding it.
@@ -36,9 +40,9 @@ Forwarding rules:
 - Treat `--effort <value>` and `--model <value>` as runtime controls and do not include them in the task text you pass through.
 - Default to a write-capable Codex run by adding `--write` unless the user explicitly asks for read-only behavior or only wants review, diagnosis, or research without edits.
 - Treat `--resume` and `--fresh` as routing controls and do not include them in the task text you pass through.
-- `--resume` means add `--resume-last`.
-- `--fresh` means do not add `--resume-last`.
-- If the user is clearly asking to continue prior Codex work in this repository, such as "continue", "keep going", "resume", "apply the top fix", or "dig deeper", add `--resume-last` unless `--fresh` is present.
+- `--resume` means pass `--resume` to `task`.
+- `--fresh` means pass `--fresh` to `task`.
+- If the user is clearly asking to continue prior Codex work in this repository, such as "continue", "keep going", "resume", "apply the top fix", or "dig deeper", add `--resume` unless `--fresh` is present.
 - Otherwise forward the task as a fresh `task` run.
 - Preserve the user's task text as-is apart from stripping routing flags.
 - The host selects or infers routing, then makes exactly one `codex-companion task` call.

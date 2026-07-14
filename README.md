@@ -71,7 +71,7 @@ Use GPT 5.6 via codex-plugin-cc to implement this --route hard
 Use GPT 5.6 via codex-plugin-cc to implement this --model gpt-5.6-sol --effort xhigh
 ```
 
-Fable remains the orchestrator. It researches, plans, chooses routes, hands bounded implementation work to Codex, checks the changes, and sends fixes back when checks fail.
+Fable remains the orchestrator. It researches, plans, chooses routes, hands bounded implementation work to Codex, checks the changes, and sends fixes back when checks fail. Each delegation forwards one task. Delegated write runs use `features.multi_agent=false`, so the delegated model is a single senior developer and does not create internal subagents.
 
 Use `/codex:team <task>` for the default team, or ask in normal language. Fable chooses the route unless you specify one.
 
@@ -151,7 +151,7 @@ Use it when you want Codex to:
 > [!NOTE]
 > Depending on the task and the model you choose these tasks might take a long time and it's generally recommended to force the task to be in the background or move the agent to the background.
 
-It supports `--background`, `--wait`, `--resume`, `--fresh`, `--route`, `--model`, and `--effort`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
+It supports `--background`, `--wait`, `--resume`, `--fresh`, `--route`, `--model`, and `--effort`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo. `--wait` has a bounded wait. An active `waitTimedOut: true` result is a durable handoff, not a continuing wait. It preserves `jobId`; a later explicit or user-driven `--wait --resume <delta>` attaches to that active task. Repeated attaches are idempotent and start no new implementation turn while active. `--fresh` explicitly starts a new task.
 
 Examples:
 
@@ -163,6 +163,7 @@ Examples:
 /codex:rescue --model gpt-5.4-mini --effort medium investigate the flaky integration test
 /codex:rescue --model spark fix the issue quickly
 /codex:rescue --background investigate the regression
+/codex:rescue --wait --resume continue after installing the required dependency
 ```
 
 You can also just ask for a task to be delegated to Codex:
@@ -192,6 +193,7 @@ Ask Codex to redesign the database connection to be more resilient.
 - `max` and `ultra` are supported effort levels.
 - if you say `spark`, the plugin maps that to `gpt-5.3-codex-spark`
 - follow-up rescue requests can continue the latest Codex task in the repo
+- if a completed delegated result says an install was blocked by registry or network policy, Fable performs the exact required install host-side using the workspace's existing package manager, proxy, and registry configuration, then makes one `--wait --resume` delegation to continue the same thread. It does not broaden network access, add wildcard allowlists, escalate privileges, or retry an active task.
 
 ### `/codex:transfer`
 

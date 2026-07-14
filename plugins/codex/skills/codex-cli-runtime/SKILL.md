@@ -13,6 +13,9 @@ Primary helper:
 
 Execution rules:
 - The rescue subagent is a forwarder, not an orchestrator. Its only job is to invoke `task` once and return that stdout unchanged.
+- An active `waitTimedOut: true` result is a durable handoff, not a continuing wait. Return it unchanged with its `jobId`.
+- Do not issue another task call to wait, monitor, poll, or retry an active task. An explicit `task --wait --resume <delta>` attaches to the same active task, is idempotent while active, and starts no new implementation turn. `--fresh` explicitly starts a new task.
+- Write runs use `features.multi_agent=false`. The delegated model is one senior developer and must not create internal subagents.
 - Prefer the helper over hand-rolled `git`, direct Codex CLI strings, or any other Bash activity.
 - Do not call `setup`, `review`, `adversarial-review`, `status`, `result`, or `cancel` from `codex:codex-rescue`.
 - Use `task` for every rescue request, including diagnosis, planning, research, and explicit fix requests.
@@ -28,16 +31,17 @@ Execution rules:
 
 Command selection:
 - Use exactly one `task` invocation per rescue handoff.
-- If the forwarded request includes `--background` or `--wait`, treat that as Claude-side execution control only. Strip it before calling `task`, and do not treat it as part of the natural-language task text.
+- If the forwarded request includes `--background`, treat it as execution control only. Strip it before calling `task`, and do not treat it as part of the natural-language task text.
+- If the forwarded request includes `--wait`, pass it through to `task` and do not treat it as part of the natural-language task text.
 - If the forwarded request includes `--model`, normalize `spark` to `gpt-5.3-codex-spark` and pass it through to `task`.
 - If the forwarded request includes `--effort`, pass it through to `task`.
 - If the forwarded request includes `--route`, pass it through to `task`.
-- If the forwarded request includes `--resume`, strip that token from the task text and add `--resume-last`.
-- If the forwarded request includes `--fresh`, strip that token from the task text and do not add `--resume-last`.
-- `--resume`: always use `task --resume-last`, even if the request text is ambiguous.
+- If the forwarded request includes `--resume`, strip that token from the task text and pass `--resume` to `task`.
+- If the forwarded request includes `--fresh`, strip that token from the task text and pass `--fresh` to `task`.
+- `--resume`: always use `task --wait --resume` when the request asks to attach, even if the request text is ambiguous.
 - `--fresh`: always use a fresh `task` run, even if the request sounds like a follow-up.
 - `--effort`: accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`.
-- `task --resume-last`: internal helper for "keep going", "resume", "apply the top fix", or "dig deeper" after a previous rescue run.
+- `task --wait --resume <delta>` attaches to the sole active current-session task without consuming the delta, or resumes the latest finished current-session thread with the delta.
 
 Safety rules:
 - Default to write-capable Codex work in `codex:codex-rescue` unless the user explicitly asks for read-only behavior.

@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import process from "node:process";
 
-import { terminateProcessTree } from "./lib/process.mjs";
+import { probeProcess, terminateProcessTree } from "./lib/process.mjs";
 import { BROKER_ENDPOINT_ENV } from "./lib/app-server.mjs";
 import {
   clearBrokerSession,
@@ -13,12 +13,16 @@ import {
   sendBrokerShutdown,
   teardownBrokerSession
 } from "./lib/broker-lifecycle.mjs";
-import { loadState, resolveStateFile, saveState } from "./lib/state.mjs";
+import { resolveStateFile, updateState } from "./lib/state.mjs";
 import { TRANSCRIPT_PATH_ENV } from "./lib/claude-session-transfer.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 
 export const SESSION_ID_ENV = "CODEX_COMPANION_SESSION_ID";
 const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
+
+if (process.platform !== "win32") {
+  process.umask(0o077);
+}
 
 function readHookInput() {
   const raw = fs.readFileSync(0, "utf8").trim();
@@ -39,7 +43,28 @@ function appendEnvVar(name, value) {
   fs.appendFileSync(process.env.CLAUDE_ENV_FILE, `export ${name}=${shellEscape(value)}\n`, "utf8");
 }
 
-function cleanupSessionJobs(cwd, sessionId) {
+function isActiveJobStatus(status) {
+  return status === "queued" || status === "running" || status === "terminating";
+}
+
+function probeWorkerLease(workerLease) {
+  if (
+    !workerLease ||
+    !Number.isInteger(workerLease.pid) ||
+    workerLease.pid <= 0 ||
+    typeof workerLease.startIdentity !== "string" ||
+    !workerLease.startIdentity
+  ) {
+    return "unknown";
+  }
+  const probe = probeProcess(workerLease.pid);
+  if (probe.liveness !== "alive") {
+    return probe.liveness;
+  }
+  return probe.startIdentity === workerLease.startIdentity ? "alive" : probe.startIdentity ? "replaced" : "unknown";
+}
+
+async function cleanupSessionJobs(cwd, sessionId) {
   if (!cwd || !sessionId) {
     return;
   }
@@ -50,27 +75,59 @@ function cleanupSessionJobs(cwd, sessionId) {
     return;
   }
 
-  const state = loadState(workspaceRoot);
-  const removedJobs = state.jobs.filter((job) => job.sessionId === sessionId);
-  if (removedJobs.length === 0) {
+  const selectedJobs = [];
+  updateState(workspaceRoot, (state) => {
+    state.jobs = state.jobs.map((job) => {
+      if (job.sessionId !== sessionId || job.jobClass === "task" || job.kind === "task") {
+        return job;
+      }
+      selectedJobs.push(job);
+      if (!isActiveJobStatus(job.status) || probeWorkerLease(job.workerLease) !== "alive") {
+        return job;
+      }
+      return { ...job, status: "terminating", phase: "terminating" };
+    });
+  });
+  if (selectedJobs.length === 0) {
     return;
   }
 
-  for (const job of removedJobs) {
-    const stillRunning = job.status === "queued" || job.status === "running";
-    if (!stillRunning) {
+  const signaledLeases = [];
+  for (const job of selectedJobs) {
+    if (!isActiveJobStatus(job.status) || probeWorkerLease(job.workerLease) !== "alive") {
       continue;
     }
+    signaledLeases.push(job.workerLease);
     try {
-      terminateProcessTree(job.pid ?? Number.NaN);
+      terminateProcessTree(job.workerLease.pid);
     } catch {
       // Ignore teardown failures during session shutdown.
     }
   }
 
-  saveState(workspaceRoot, {
-    ...state,
-    jobs: state.jobs.filter((job) => job.sessionId !== sessionId)
+  const deadline = Date.now() + 1000;
+  while (signaledLeases.length > 0 && Date.now() < deadline) {
+    const anyAlive = signaledLeases.some((lease) => {
+      const liveness = probeWorkerLease(lease);
+      return liveness !== "gone" && liveness !== "replaced";
+    });
+    if (!anyAlive) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  const removableIds = new Set();
+  for (const job of selectedJobs) {
+    const active = isActiveJobStatus(job.status);
+    if (!active || (job.status === "queued" && (!Number.isInteger(job.pid) || job.pid <= 0))) {
+      removableIds.add(job.id);
+    } else if (["gone", "replaced"].includes(probeWorkerLease(job.workerLease))) {
+      removableIds.add(job.id);
+    }
+  }
+  updateState(workspaceRoot, (state) => {
+    state.jobs = state.jobs.filter((job) => !removableIds.has(job.id));
   });
 }
 
@@ -101,7 +158,7 @@ async function handleSessionEnd(input) {
     await sendBrokerShutdown(brokerEndpoint);
   }
 
-  cleanupSessionJobs(cwd, input.session_id || process.env[SESSION_ID_ENV]);
+  await cleanupSessionJobs(cwd, input.session_id || process.env[SESSION_ID_ENV]);
   teardownBrokerSession({
     endpoint: brokerEndpoint,
     pidFile,
