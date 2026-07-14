@@ -21,6 +21,17 @@ they already have.
 
 ## Install
 
+### This fork
+
+```bash
+/plugin marketplace add DevYukine/codex-plugin-cc
+/plugin install codex@openai-codex
+/reload-plugins
+/codex:setup
+```
+
+### Upstream
+
 Add the marketplace in Claude Code:
 
 ```bash
@@ -137,7 +148,7 @@ Use it when you want Codex to:
 > [!NOTE]
 > Depending on the task and the model you choose these tasks might take a long time and it's generally recommended to force the task to be in the background or move the agent to the background.
 
-It supports `--background`, `--wait`, `--resume`, and `--fresh`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
+It supports `--background`, `--wait`, `--resume`, `--fresh`, `--route`, `--model`, and `--effort`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo.
 
 Examples:
 
@@ -145,6 +156,7 @@ Examples:
 /codex:rescue investigate why the tests started failing
 /codex:rescue fix the failing test with the smallest safe patch
 /codex:rescue --resume apply the top fix from the last run
+/codex:rescue --route implementation fix the failing test with the smallest safe patch
 /codex:rescue --model gpt-5.4-mini --effort medium investigate the flaky integration test
 /codex:rescue --model spark fix the issue quickly
 /codex:rescue --background investigate the regression
@@ -158,7 +170,23 @@ Ask Codex to redesign the database connection to be more resilient.
 
 **Notes:**
 
-- if you do not pass `--model` or `--effort`, Codex chooses its own defaults.
+- route defaults:
+
+  | Route | Model | Effort |
+  | --- | --- | --- |
+  | `mechanical` | `gpt-5.6-luna` | `low` |
+  | `research` | `gpt-5.6-terra` | `medium` |
+  | `implementation` | `gpt-5.6-terra` | `high` |
+  | `hard` | `gpt-5.6-sol` | `xhigh` |
+  | `architecture` | `gpt-5.6-sol` | `max` |
+  | `parallel` | `gpt-5.6-sol` | `ultra` |
+
+- `/codex:setup` workspace route overrides replace route model and effort values field by field.
+- explicit `--model` and `--effort` override a route independently.
+- without `--route`, `--model`, or `--effort`, Codex keeps its current null model/effort behavior.
+- on a fresh rescue delegation, Codex may infer the narrowest matching route.
+- a resumed rescue keeps its existing model and effort unless `--route`, `--model`, or `--effort` is explicit.
+- `max` and `ultra` are supported effort levels.
 - if you say `spark`, the plugin maps that to `gpt-5.3-codex-spark`
 - follow-up rescue requests can continue the latest Codex task in the repo
 
@@ -223,6 +251,13 @@ Checks whether Codex is installed and authenticated.
 If Codex is missing and npm is available, it can offer to install Codex for you.
 
 You can also use `/codex:setup` to manage the optional review gate.
+
+You can configure a workspace route, or clear its override:
+
+```bash
+/codex:setup --route implementation --model gpt-5.6-terra --effort high
+/codex:setup --route implementation --clear
+```
 
 #### Enabling review gate
 
