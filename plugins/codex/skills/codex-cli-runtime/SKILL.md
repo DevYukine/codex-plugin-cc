@@ -1,52 +1,45 @@
 ---
 name: codex-cli-runtime
-description: Internal helper contract for calling the codex-companion runtime from Claude Code
+description: Internal compatibility contract for calling the codex-companion runtime from the codex-rescue agent
 user-invocable: false
 ---
 
 # Codex Runtime
 
-Use this skill only inside the `codex:codex-rescue` subagent.
+Use this skill only inside the compatibility `codex:codex-rescue` agent. Primary team and rescue flows call the companion directly. The agent's only job is to invoke `task` once and return that stdout unchanged.
 
 Primary helper:
-- `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task "<raw arguments>"`
+- `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task --wait --timeout-ms 0 <selected-controls> <shell-quoted-task>`
 
 Execution rules:
-- The rescue subagent is a forwarder, not an orchestrator. Its only job is to invoke `task` once and return that stdout unchanged.
-- An active `waitTimedOut: true` result is a durable handoff, not a continuing wait. Return it unchanged with its `jobId`.
-- Do not issue another task call to wait, monitor, poll, or retry an active task. An explicit `task --wait --resume <delta>` attaches to the same active task, is idempotent while active, and starts no new implementation turn. `--fresh` explicitly starts a new task.
+
+- Use exactly one `task` invocation per rescue handoff.
+- Always call `task --wait --timeout-ms 0` once in a quick foreground `Bash` and return its durable job handoff stdout unchanged.
+- Strip incoming `--background` and `--wait`. The zero-time wait immediately returns a durable `waitTimedOut` handoff after enqueueing fresh or finished-resume work. Against an active task, `--resume` attaches idempotently and does not enqueue another turn.
+- Do not set `run_in_background: true`, wait for completion, or claim that the agent auto-wakes.
+- Dynamic task text and dynamic control values must each be one literal argv item quoted for the active shell. Preserve the exact text. Never interpolate raw dynamic text or use `eval`, command substitution, redirection, or executable task text.
+- In headless `claude -p`, require explicit `--background --fresh` or `--background --resume`. If neither `--fresh` nor `--resume` is supplied, stop with that instruction.
 - Write runs use `features.multi_agent=false`. The delegated model is one senior developer and must not create internal subagents.
-- Prefer the helper over hand-rolled `git`, direct Codex CLI strings, or any other Bash activity.
 - Do not call `setup`, `review`, `adversarial-review`, `status`, `result`, or `cancel` from `codex:codex-rescue`.
-- Use `task` for every rescue request, including diagnosis, planning, research, and explicit fix requests.
-- You may use the `gpt-5-4-prompting` skill to rewrite the user's request into a tighter Codex prompt before the single `task` call.
-- That prompt drafting is the only Claude-side work allowed. Do not inspect the repo, solve the task yourself, or add independent analysis outside the forwarded prompt text.
-- Built-in routes are: `mechanical` (`gpt-5.6-luna`, `low`), `research` (`gpt-5.6-terra`, `medium`), `implementation` (`gpt-5.6-sol`, `high`), `hard` (`gpt-5.6-sol`, `xhigh`), `architecture` (`gpt-5.6-sol`, `max`), and `parallel` (`gpt-5.6-sol`, `max`).
-- The host applies workspace route overrides from `/codex:setup` field by field. Explicit `--model` and `--effort` override the selected route independently.
-- With no `--route`, `--model`, or `--effort`, preserve the current null model/effort behavior.
-- For a fresh run, the host may infer the narrowest matching route. A resumed run keeps its existing model and effort unless `--route`, `--model`, or `--effort` is explicit.
-- Preserve `--route`, `--model`, and `--effort` for host selection. Do not add model or effort values yourself.
-- Map `spark` to `--model gpt-5.3-codex-spark`.
-- Default to a write-capable Codex run by adding `--write` unless the user explicitly asks for read-only behavior or only wants review, diagnosis, or research without edits.
+- Use `task` for every rescue request, including diagnosis, planning, research, and explicit fixes.
+- You may use the `gpt-5-4-prompting` skill to rewrite the user's request into a tighter Codex prompt. That prompt drafting is the only Claude-side work allowed.
 
 Command selection:
-- Use exactly one `task` invocation per rescue handoff.
-- If the forwarded request includes `--background`, treat it as execution control only. Strip it before calling `task`, and do not treat it as part of the natural-language task text.
-- If the forwarded request includes `--wait`, pass it through to `task` and do not treat it as part of the natural-language task text.
-- If the forwarded request includes `--model`, normalize `spark` to `gpt-5.3-codex-spark` and pass it through to `task`.
-- If the forwarded request includes `--effort`, pass it through to `task`.
+
+- Preserve `--route`, `--model`, and `--effort` for host selection. Map `spark` to `--model gpt-5.3-codex-spark`.
+- Strip forwarded `--background` and `--wait`; the compatibility command supplies `--wait --timeout-ms 0`.
 - If the forwarded request includes `--route`, pass it through to `task`.
-- If the forwarded request includes `--resume`, strip that token from the task text and pass `--resume` to `task`.
-- If the forwarded request includes `--fresh`, strip that token from the task text and pass `--fresh` to `task`.
-- `--resume`: always use `task --wait --resume` when the request asks to attach, even if the request text is ambiguous.
-- `--fresh`: always use a fresh `task` run, even if the request sounds like a follow-up.
+- Pass `--resume` or `--fresh` to `task` and strip those controls from task text.
+- `task --wait --timeout-ms 0 --resume <delta>` resumes a finished current-session thread or attaches idempotently to the active task, then returns a durable handoff.
+- `--fresh` starts a new task even when the request sounds like a follow-up.
 - `--effort`: accepted values are `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`.
-- `task --wait --resume <delta>` attaches to the sole active current-session task without consuming the delta, or resumes the latest finished current-session thread with the delta.
+- Built-in routes are: `mechanical` (`gpt-5.6-luna`, `low`), `research` (`gpt-5.6-terra`, `medium`), `implementation` (`gpt-5.6-sol`, `high`), `hard` (`gpt-5.6-sol`, `xhigh`), `architecture` (`gpt-5.6-sol`, `max`), and `parallel` (`gpt-5.6-sol`, `max`).
+- The host applies workspace route overrides from `/codex:setup` field by field. Explicit `--model` and `--effort` override the selected route independently. With no `--route`, `--model`, or `--effort`, preserve the current null model/effort behavior. For a fresh run, the host may infer the narrowest matching route. A resumed run keeps its existing model and effort unless `--route`, `--model`, or `--effort` is explicit.
+- Default to `--write` unless the user explicitly requests read-only review, diagnosis, or research.
 
 Safety rules:
-- Default to write-capable Codex work in `codex:codex-rescue` unless the user explicitly asks for read-only behavior.
-- Preserve the user's task text as-is apart from stripping routing flags.
-- The host selects or infers routing, then makes exactly one `codex-companion task` call.
-- Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own.
-- Return the stdout of the `task` command exactly as-is.
+
+- Preserve the task text apart from execution and routing flags.
+- Never invoke a package manager or install dependencies.
+- Do not inspect the repository, read files, grep, monitor, summarize, cancel, or do follow-up work.
 - If the Bash call fails or Codex cannot be invoked, return nothing.

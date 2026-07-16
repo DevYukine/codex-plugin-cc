@@ -48,7 +48,7 @@ If Codex is installed but not logged in yet, run:
 After install, you should see:
 
 - the slash commands listed below
-- the `codex:codex-rescue` subagent in `/agents`
+- the `codex:codex-rescue` subagent in `/agents` as a compatibility fallback
 
 One simple first run is:
 
@@ -72,6 +72,8 @@ Use GPT 5.6 via codex-plugin-cc to implement this --model gpt-5.6-sol --effort x
 ```
 
 Fable remains the orchestrator. It researches, plans, chooses routes, hands bounded implementation work to Codex, checks the changes, and sends fixes back when checks fail. Each delegation forwards one task. Delegated write runs use `features.multi_agent=false`, so the delegated model is a single senior developer and does not create internal subagents.
+
+Waited team tasks run as host-tracked background commands. In interactive Claude Code, task completion automatically wakes Fable to inspect the changes and run checks. The local watcher checks job state every 2 seconds without model turns and expires after 6 hours. The detached worker survives a watcher timeout. Fable does not poll for completion.
 
 Use `/codex:team <task>` for the default team, or ask in normal language. Fable chooses the route unless you specify one.
 
@@ -139,7 +141,7 @@ This command is read-only. It does not fix code.
 
 ### `/codex:rescue`
 
-Hands a task to Codex through the `codex:codex-rescue` subagent.
+Hands a task directly to Codex through the shared companion runtime. The `codex:codex-rescue` agent remains only as a compatibility fallback for explicit agent calls.
 
 Use it when you want Codex to:
 
@@ -149,9 +151,15 @@ Use it when you want Codex to:
 - take a faster or cheaper pass with a smaller model
 
 > [!NOTE]
-> Depending on the task and the model you choose these tasks might take a long time and it's generally recommended to force the task to be in the background or move the agent to the background.
+> In interactive Claude Code, waited rescue tasks complete through an automatic host task notification. No model polling is needed.
 
-It supports `--background`, `--wait`, `--resume`, `--fresh`, `--route`, `--model`, and `--effort`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo. Finished delegated task threads are archived automatically after their turn or confirmed cancellation settles. A resumed task transparently unarchives its archived thread, then archives it again when the new turn completes. `--wait` has a bounded wait. An active `waitTimedOut: true` result is a durable handoff, not a continuing wait. It preserves `jobId`; a later explicit or user-driven `--wait --resume <delta>` attaches to that active task. Repeated attaches are idempotent and start no new implementation turn while active. `--fresh` explicitly starts a new task.
+It supports `--background`, `--wait`, `--resume`, `--fresh`, `--route`, `--model`, and `--effort`. If you omit `--resume` and `--fresh`, the plugin can offer to continue the latest rescue thread for this repo. Finished delegated task threads are archived automatically after their turn or confirmed cancellation settles. A resumed task transparently unarchives its archived thread, then archives it again when the new turn completes. `--wait` and the default use a main-owned background waiter. The local watcher checks job state every 2 seconds without model turns and expires after 6 hours. An active `waitTimedOut: true` result is a durable handoff, and its worker survives the watcher timeout. It preserves `jobId`; a later explicit `--wait --resume <delta>` attaches to that task. Repeated attaches are idempotent and start no new implementation turn while active. `--fresh` starts a new task.
+
+Interactive Claude Code automatically wakes Fable when a waited rescue finishes. Fable uses the command stdout, inspects the changes, and verifies the result. Headless `claude -p` does not re-invoke Fable for task notifications and cannot auto-wake. It never opens an interactive question. Use explicit `--background --fresh`, or `--background --resume` only for a prior task confirmed terminal through status or result. Never background-resume an active task. Then check `/codex:status` or `/codex:result` in a later invocation:
+
+```bash
+claude -p '/codex:rescue --background --fresh investigate the regression'
+```
 
 Examples:
 
@@ -193,6 +201,7 @@ Ask Codex to redesign the database connection to be more resilient.
 - `max` and `ultra` are supported effort levels.
 - if you say `spark`, the plugin maps that to `gpt-5.3-codex-spark`
 - follow-up rescue requests can continue the latest Codex task in the repo
+- explicit `--background` is a launch-only durable handoff; `/codex:status` and `/codex:result` remain available for later checks
 - if a completed delegated result says an install was blocked by registry or network policy, Fable performs the exact required install host-side using the workspace's existing package manager, proxy, and registry configuration, then makes one `--wait --resume` delegation to continue the same thread. It does not broaden network access, add wildcard allowlists, escalate privileges, or retry an active task.
 
 ### `/codex:transfer`

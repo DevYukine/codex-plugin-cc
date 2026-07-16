@@ -2989,6 +2989,35 @@ test("status expires a lease-less queue only after its launcher exits", { skip: 
   assert.equal(JSON.parse(dead.stdout).job.status, "failed");
 });
 
+test("status accepts the six-hour wait maximum and rejects larger values", () => {
+  const workspace = makeTempDir();
+  const job = {
+    id: "task-six-hour-wait",
+    kind: "task",
+    jobClass: "task",
+    status: "completed",
+    completedAt: new Date().toISOString(),
+    result: { rawOutput: "done" },
+    rendered: "done\n"
+  };
+  writeTrackedJobFixture(workspace, job);
+
+  const maximum = run("node", [SCRIPT, "status", job.id, "--wait", "--timeout-ms", "21600000", "--json"], {
+    cwd: workspace
+  });
+  assert.equal(maximum.status, 0, maximum.stderr);
+  assert.equal(JSON.parse(maximum.stdout).timeoutMs, 21600000);
+  assert.equal(JSON.parse(maximum.stdout).waitTimedOut, false);
+
+  const tooLarge = run(
+    "node",
+    [SCRIPT, "status", job.id, "--wait", "--timeout-ms", "21600001", "--json"],
+    { cwd: workspace }
+  );
+  assert.equal(tooLarge.status, 1);
+  assert.match(tooLarge.stderr, /must be a finite number from 0 through 21600000/);
+});
+
 test("status validates bounded finite wait values and treats zero as no wait", { skip: process.platform !== "linux" }, () => {
   const workspace = makeTempDir();
   const job = { id: "task-wait-values", kind: "task", jobClass: "task", status: "running", pid: null };
@@ -3004,12 +3033,12 @@ test("status validates bounded finite wait values and treats zero as no wait", {
   for (const args of [
     ["--timeout-ms", "NaN"],
     ["--timeout-ms", "Infinity"],
-    ["--timeout-ms", "3600001"],
+    ["--timeout-ms", "21600001"],
     ["--poll-interval-ms", "Infinity"]
   ]) {
     const invalid = run("node", [SCRIPT, "status", job.id, "--wait", ...args, "--json"], { cwd: workspace });
     assert.equal(invalid.status, 1);
-    assert.match(invalid.stderr, /must be a finite number from 0 through 3600000/);
+    assert.match(invalid.stderr, /must be a finite number from 0 through 21600000/);
   }
 });
 
